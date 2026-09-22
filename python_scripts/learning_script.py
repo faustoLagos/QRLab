@@ -5,9 +5,14 @@ from datetime import datetime
 import argparse
 from stable_baselines3 import PPO, SAC, DDPG, TD3
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.callbacks import EvalCallback, StopTrainingOnMaxEpisodes, StopTrainingOnRewardThreshold, CheckpointCallback
+from stable_baselines3.common.callbacks import (
+    EvalCallback,
+    StopTrainingOnMaxEpisodes,
+    StopTrainingOnRewardThreshold,
+    CheckpointCallback
+    )
 from stable_baselines3.common.vec_env import SubprocVecEnv
-from gym_pybullet_drones.utils.enums import ObservationType, ActionType
+from environments.utils.enums import ObservationType, ActionType
 
 DEFAULT_OUTPUT_FOLDER = 'results'
 
@@ -44,7 +49,14 @@ def get_model(model_class, environment, path, reuse_model=False, seed: int = 0, 
     )
 
 
-def callbacks(evaluation_environment, parallel_environments, path_to_results, stop_on_max_episodes:dict, stop_on_reward_threshold:dict, save_checkpoints:dict):
+def callbacks(
+    evaluation_environment,
+    parallel_environments,
+    path_to_results,
+    stop_on_max_episodes: dict,
+    stop_on_reward_threshold: dict,
+    save_checkpoints: dict
+    ):
     eval_callback = EvalCallback(evaluation_environment,
                                  verbose=0,
                                  best_model_save_path=path_to_results + '/',
@@ -56,17 +68,25 @@ def callbacks(evaluation_environment, parallel_environments, path_to_results, st
     callback_list = []
 
     if stop_on_reward_threshold['stop']:
-        stop_on_reward_threshold_callback = StopTrainingOnRewardThreshold(stop_on_reward_threshold['threshold'], verbose=0)
-        eval_callback = EvalCallback(evaluation_environment,
-                                     callback_on_new_best=stop_on_reward_threshold_callback,
-                                 verbose=0,
-                                 best_model_save_path=path_to_results + '/',
-                                 log_path=path_to_results + '/',
-                                 eval_freq=int(10000 / parallel_environments),
-                                 deterministic=True,
-                                 render=False)
+        stop_on_reward_threshold_callback = StopTrainingOnRewardThreshold(
+            stop_on_reward_threshold['threshold'],
+            verbose=0
+            )
+        eval_callback = EvalCallback(
+            evaluation_environment,
+            callback_on_new_best=stop_on_reward_threshold_callback,
+            verbose=0,
+            best_model_save_path=path_to_results + '/',
+            log_path=path_to_results + '/',
+            eval_freq=int(10000 / parallel_environments),
+            deterministic=True,
+            render=False
+            )
     elif stop_on_max_episodes['stop']:
-        stop_on_max_episodes_callback = StopTrainingOnMaxEpisodes(int(stop_on_max_episodes['episodes'] / parallel_environments), verbose=1)
+        stop_on_max_episodes_callback = StopTrainingOnMaxEpisodes(
+            int(stop_on_max_episodes['episodes'] / parallel_environments),
+            verbose=1
+            )
         callback_list.append(stop_on_max_episodes_callback)
 
     if save_checkpoints['save']:

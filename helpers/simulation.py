@@ -6,9 +6,14 @@ import pybullet as p
 from collections import deque
 from typing import Deque, Callable
 from numpy.typing import NDArray
+import time
 
-def in_degrees(angles):
-    return list(map(lambda angle: angle * 180 / np.pi, angles))
+
+def sync(i, start_time, timestep):
+    if timestep > 0.04 or i % (int(1 / (24 * timestep))) == 0:
+        elapsed = time.time() - start_time
+        if elapsed < (i * timestep):
+            time.sleep(timestep * i - elapsed)
 
 
 def get_policy(model_class, policy_path, model):

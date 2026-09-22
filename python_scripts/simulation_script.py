@@ -4,10 +4,11 @@ import time
 import numpy as np
 from stable_baselines3 import PPO, SAC, DDPG, TD3
 from python_scripts.Logger import Logger
-from gym_pybullet_drones.utils.enums import ObservationType, ActionType
-from gym_pybullet_drones.utils.utils import sync, str2bool
+from environments.utils.enums import ObservationType, ActionType
+from helpers.cast import str2bool
 from environments import environment_map
-from python_scripts.simulation_helpers import get_policy, in_degrees
+from helpers.simulation import sync, get_policy, in_degrees
+
 
 def run_simulation(
         test_env,
@@ -154,10 +155,25 @@ if __name__ == '__main__':
     parser.add_argument('--policy_path', help='The path to a zip file containing the trained policy')
     parser.add_argument('--model', help='The zip file containing the trained policy')
     parser.add_argument('--algorithm', default='ppo', help='The algorithm used for training')
-    parser.add_argument('--test_env', default='CLStage1Sim2Real', type=str,help='The name of the environment to learn, registered with gym_pybullet_drones')
+    parser.add_argument(
+        '--test_env',
+        default='ICRA27Env',
+        type=str,
+        help='The name of the environment to learn, registered with gym_pybullet_drones'
+        )
     parser.add_argument('--simulation-length', default=20, type=int, help='The length of the simulation in seconds')
-    parser.add_argument('--reset', default=False, type=str2bool, help="If you want to reset the environment, every time that the drone achieve the target position")
-    parser.add_argument('--save', default=False, type=str2bool, help='Allow to save the trained data using csv and npy files')
+    parser.add_argument(
+        '--reset',
+        default=False,
+        type=str2bool,
+        help="If you want to reset the environment, every time that the drone achieve the target position"
+        )
+    parser.add_argument(
+        '--save',
+        default=False,
+        type=str2bool,
+        help='Allow to save the trained data using csv and npy files'
+        )
     parser.add_argument('--comment', default="", type=str, help="A comment to describe de simulation saved data")
     parser.add_argument('--plot', default=False, type=str2bool, help="If are shown demo plots")
     parser.add_argument('--debug', default=False, type=str2bool, help="Prints debug information")

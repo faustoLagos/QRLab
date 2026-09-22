@@ -6,7 +6,7 @@ from environments.utils.enums import DroneModel, Physics, ActionType, Observatio
 import pybullet as p
 
 
-class Stage6Env(InertiaRandomizationMixin, MassRandomizationMixin, BaseRLAviary):
+class ICRA27Env(InertiaRandomizationMixin, MassRandomizationMixin, BaseRLAviary):
     def __init__(self,
                  drone_model: DroneModel = DroneModel.CF2X,
                  initial_xyzs=np.array([[0, 0, 0.1]]),

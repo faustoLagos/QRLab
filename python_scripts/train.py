@@ -2,7 +2,7 @@
 import argparse
 from environments import environment_map
 from python_scripts.learning_script import run_learning
-from gym_pybullet_drones.utils.utils import str2bool
+from helpers.cast import str2bool
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Single Agent learning')
