@@ -6,7 +6,7 @@ from collections import deque
 
 from environments.BaseAviary import BaseAviary
 from environments.utils.enums import DroneModel, Physics, ActionType, ObservationType, ImageType
-from python_scripts.Control.DSLPIDControl import DSLPIDControl
+# from python_scripts.Control.DSLPIDControl import DSLPIDControl
 
 
 RPM_ACTION_REFERENCE_GRAVITY = 9.82
@@ -141,26 +141,26 @@ class BaseRLAviary(BaseAviary):
         self.FIRMWARE_ACTUATOR = firmware_actuator
         self.FIRMWARE_BATTERY_VOLTAGE = float(firmware_battery_voltage)
         #### Create integrated controllers #########################
-        if act in [ActionType.PID, ActionType.VEL, ActionType.ONE_D_PID]:
-            os.environ['KMP_DUPLICATE_LIB_OK']='True'
-            if drone_model in [DroneModel.CF2X, DroneModel.CF2P]:
-                self.ctrl = [DSLPIDControl(drone_model=DroneModel.CF2X) for i in range(num_drones)]
-            else:
-                print("[ERROR] in BaseRLAviary.__init()__, no controller is available for the specified drone_model")
-        super().__init__(drone_model=drone_model,
-                         num_drones=num_drones,
-                         neighbourhood_radius=neighbourhood_radius,
-                         initial_xyzs=initial_xyzs,
-                         initial_rpys=initial_rpys,
-                         physics=physics,
-                         pyb_freq=pyb_freq,
-                         ctrl_freq=ctrl_freq,
-                         gui=gui,
-                         record=record, 
-                         obstacles=True, # Add obstacles for RGB observations and/or FlyThruGate
-                         user_debug_gui=False, # Remove of RPM sliders from all single agent learning aviaries
-                         vision_attributes=vision_attributes,
-                         )
+#        if act in [ActionType.PID, ActionType.VEL, ActionType.ONE_D_PID]:
+#            os.environ['KMP_DUPLICATE_LIB_OK']='True'
+#            if drone_model in [DroneModel.CF2X, DroneModel.CF2P]:
+#                self.ctrl = [DSLPIDControl(drone_model=DroneModel.CF2X) for i in range(num_drones)]
+#            else:
+#                print("[ERROR] in BaseRLAviary.__init()__, no controller is available for the specified drone_model")
+#        super().__init__(drone_model=drone_model,
+#                         num_drones=num_drones,
+#                         neighbourhood_radius=neighbourhood_radius,
+#                         initial_xyzs=initial_xyzs,
+#                         initial_rpys=initial_rpys,
+#                         physics=physics,
+#                         pyb_freq=pyb_freq,
+#                         ctrl_freq=ctrl_freq,
+#                         gui=gui,
+#                         record=record, 
+#                         obstacles=True, # Add obstacles for RGB observations and/or FlyThruGate
+#                         user_debug_gui=False, # Remove of RPM sliders from all single agent learning aviaries
+#                         vision_attributes=vision_attributes,
+#                         )
         #### Fixed action normalization reference ##################
         self.ACTION_HOVER_RPM = calculate_hover_rpm(
             gravity_acceleration=RPM_ACTION_REFERENCE_GRAVITY,
