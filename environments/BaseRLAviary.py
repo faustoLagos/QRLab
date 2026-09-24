@@ -1,4 +1,3 @@
-import os
 import numpy as np
 import pybullet as p
 from gymnasium import spaces
@@ -6,7 +5,6 @@ from collections import deque
 
 from environments.BaseAviary import BaseAviary
 from environments.utils.enums import DroneModel, Physics, ActionType, ObservationType, ImageType
-# from python_scripts.Control.DSLPIDControl import DSLPIDControl
 
 
 RPM_ACTION_REFERENCE_GRAVITY = 9.82
@@ -128,7 +126,7 @@ class BaseRLAviary(BaseAviary):
         obs : ObservationType, optional
             The type of observation space (kinematic information or vision)
         act : ActionType, optional
-            The type of action space (1 or 3D; RPMS, thurst and torques, waypoint or velocity with PID control; etc.)
+            The normalized motor action representation.
 
         """
         #### Create a buffer for the last .5 sec of actions ########
@@ -140,13 +138,7 @@ class BaseRLAviary(BaseAviary):
         self.ACT_TYPE = act
         self.FIRMWARE_ACTUATOR = firmware_actuator
         self.FIRMWARE_BATTERY_VOLTAGE = float(firmware_battery_voltage)
-        #### Create integrated controllers #########################
-#        if act in [ActionType.PID, ActionType.VEL, ActionType.ONE_D_PID]:
-#            os.environ['KMP_DUPLICATE_LIB_OK']='True'
-#            if drone_model in [DroneModel.CF2X, DroneModel.CF2P]:
-#                self.ctrl = [DSLPIDControl(drone_model=DroneModel.CF2X) for i in range(num_drones)]
-#            else:
-#                print("[ERROR] in BaseRLAviary.__init()__, no controller is available for the specified drone_model")
+
         super().__init__(drone_model=drone_model,
                          num_drones=num_drones,
                          neighbourhood_radius=neighbourhood_radius,
@@ -167,9 +159,6 @@ class BaseRLAviary(BaseAviary):
             mass=float(self.M),
             thrust_coefficient=float(self.KF),
         )
-        #### Set a limit on the maximum target speed ###############
-        if act == ActionType.VEL:
-            self.SPEED_LIMIT = 0.03 * self.MAX_SPEED_KMH * (1000/3600)
 
     ################################################################################
 
@@ -207,28 +196,27 @@ class BaseRLAviary(BaseAviary):
     ################################################################################
 
     def _actionSpace(self):
-        """Returns the action space of the environment.
+        """Returns the normalized motor action space."""
 
-        Returns
-        -------
-        spaces.Box
-            A Box of size NUM_DRONES x 4, 3, or 1, depending on the action type.
+        action_dimensions = {
+            ActionType.RPM: 4,
+        }
 
-        """
-        if self.ACT_TYPE in [ActionType.RPM, ActionType.VEL]:
-            size = 4
-        elif self.ACT_TYPE==ActionType.PID:
-            size = 3
-        elif self.ACT_TYPE in [ActionType.ONE_D_RPM, ActionType.ONE_D_PID]:
-            size = 1
-        else:
-            print("[ERROR] in BaseRLAviary._actionSpace()")
-            exit()
-        act_lower_bound = np.array([-1*np.ones(size) for i in range(self.NUM_DRONES)])
-        act_upper_bound = np.array([+1*np.ones(size) for i in range(self.NUM_DRONES)])
+        try:
+            size = action_dimensions[self.ACT_TYPE]
+        except KeyError as error:
+            raise ValueError(
+                f"Unsupported action type: {self.ACT_TYPE}"
+            ) from error
+
         self.ACTION_DIMENSION = size
         self._resetActionBuffer()
-        return spaces.Box(low=act_lower_bound, high=act_upper_bound, dtype=np.float32)
+
+        return spaces.Box(
+            low=-np.ones((self.NUM_DRONES, size), dtype=np.float32),
+            high=np.ones((self.NUM_DRONES, size), dtype=np.float32),
+            dtype=np.float32
+        )
 
     ################################################################################
 
@@ -255,104 +243,30 @@ class BaseRLAviary(BaseAviary):
     def _preprocessAction(self,
                           action
                           ):
-        """Pre-processes the action passed to `.step()` into motors' RPMs.
-
-        Parameter `action` is processed differenly for each of the different
-        action types: the input to n-th drone, `action[n]` can be of length
-        1, 3, or 4, and represent RPMs, desired thrust and torques, or the next
-        target position to reach using PID control.
-
-        Parameter `action` is processed differenly for each of the different
-        action types: `action` can be of length 1, 3, or 4 and represent 
-        RPMs, desired thrust and torques, the next target position to reach 
-        using PID control, a desired velocity vector, etc.
-
-        Parameters
-        ----------
-        action : ndarray
-            The input action for each drone, to be translated into RPMs.
-
-        Returns
-        -------
-        ndarray
-            (NUM_DRONES, 4)-shaped array of ints containing to clipped RPMs
-            commanded to the 4 motors of each drone.
-
-        """
+        """Converts normalized motor actions into plant RPMs."""
         self.action_buffer.append(action)
         rpm = np.zeros((self.NUM_DRONES,4))
-        for k in range(action.shape[0]):
-            target = action[k, :]
+
+        for drone_id, target in enumerate(action):
             if self.ACT_TYPE == ActionType.RPM:
                 commanded_rpm = np.asarray(
                     self.ACTION_HOVER_RPM * (1.0 + 0.5 * target),
-                    dtype=np.float64,
+                    dtype=np.float64
                 )
-                rpm[k, :] = (
-                    simulate_firmware_actuator_path(
-                        commanded_rpm=commanded_rpm,
-                        supply_voltage=self.FIRMWARE_BATTERY_VOLTAGE,
-                    )
-                    if self.FIRMWARE_ACTUATOR
-                    else commanded_rpm
-                )
-            elif self.ACT_TYPE == ActionType.PID:
-                state = self._getDroneStateVector(k)
-                next_pos = self._calculateNextStep(
-                    current_position=state[0:3],
-                    destination=target,
-                    step_size=1,
-                    )
-                rpm_k, _, _ = self.ctrl[k].computeControl(control_timestep=self.CTRL_TIMESTEP,
-                                                        cur_pos=state[0:3],
-                                                        cur_quat=state[3:7],
-                                                        cur_vel=state[10:13],
-                                                        cur_ang_vel=state[13:16],
-                                                        target_pos=next_pos
-                                                        )
-                rpm[k,:] = rpm_k
-            elif self.ACT_TYPE == ActionType.VEL:
-                state = self._getDroneStateVector(k)
-                if np.linalg.norm(target[0:3]) != 0:
-                    v_unit_vector = target[0:3] / np.linalg.norm(target[0:3])
-                else:
-                    v_unit_vector = np.zeros(3)
-                temp, _, _ = self.ctrl[k].computeControl(control_timestep=self.CTRL_TIMESTEP,
-                                                        cur_pos=state[0:3],
-                                                        cur_quat=state[3:7],
-                                                        cur_vel=state[10:13],
-                                                        cur_ang_vel=state[13:16],
-                                                        target_pos=state[0:3], # same as the current position
-                                                        target_rpy=np.array([0,0,state[9]]), # keep current yaw
-                                                        target_vel=self.SPEED_LIMIT * np.abs(target[3]) * v_unit_vector # target the desired velocity vector
-                                                        )
-                rpm[k,:] = temp
-            elif self.ACT_TYPE == ActionType.ONE_D_RPM:
-                commanded_rpm = np.repeat(
-                    self.ACTION_HOVER_RPM * (1.0 + 0.2 * target),
-                    4,
-                )
-                rpm[k, :] = (
-                    simulate_firmware_actuator_path(
-                        commanded_rpm=commanded_rpm,
-                        supply_voltage=self.FIRMWARE_BATTERY_VOLTAGE,
-                    )
-                    if self.FIRMWARE_ACTUATOR
-                    else commanded_rpm
-                )
-            elif self.ACT_TYPE == ActionType.ONE_D_PID:
-                state = self._getDroneStateVector(k)
-                res, _, _ = self.ctrl[k].computeControl(control_timestep=self.CTRL_TIMESTEP,
-                                                        cur_pos=state[0:3],
-                                                        cur_quat=state[3:7],
-                                                        cur_vel=state[10:13],
-                                                        cur_ang_vel=state[13:16],
-                                                        target_pos=state[0:3]+0.1*np.array([0,0,target[0]])
-                                                        )
-                rpm[k,:] = res
             else:
-                print("[ERROR] in BaseRLAviary._preprocessAction()")
-                exit()
+                raise ValueError(
+                    f"Unsupported action type: {self.ACT_TYPE}"
+                )
+
+            rpm[drone_id] = (
+                simulate_firmware_actuator_path(
+                    commanded_rpm=commanded_rpm,
+                    supply_voltage=self.FIRMWARE_BATTERY_VOLTAGE
+                )
+                if self.FIRMWARE_ACTUATOR
+                else commanded_rpm
+            )
+
         return rpm
 
     ################################################################################
@@ -381,21 +295,36 @@ class BaseRLAviary(BaseAviary):
             #### Add action buffer to observation space ################
             act_lo = -1
             act_hi = +1
-            for i in range(self.ACTION_BUFFER_SIZE):
-                if self.ACT_TYPE in [ActionType.RPM, ActionType.VEL]:
-                    obs_lower_bound = np.hstack([obs_lower_bound, np.array([[act_lo,act_lo,act_lo,act_lo] for i in range(self.NUM_DRONES)])])
-                    obs_upper_bound = np.hstack([obs_upper_bound, np.array([[act_hi,act_hi,act_hi,act_hi] for i in range(self.NUM_DRONES)])])
-                elif self.ACT_TYPE==ActionType.PID:
-                    obs_lower_bound = np.hstack([obs_lower_bound, np.array([[act_lo,act_lo,act_lo] for i in range(self.NUM_DRONES)])])
-                    obs_upper_bound = np.hstack([obs_upper_bound, np.array([[act_hi,act_hi,act_hi] for i in range(self.NUM_DRONES)])])
-                elif self.ACT_TYPE in [ActionType.ONE_D_RPM, ActionType.ONE_D_PID]:
-                    obs_lower_bound = np.hstack([obs_lower_bound, np.array([[act_lo] for i in range(self.NUM_DRONES)])])
-                    obs_upper_bound = np.hstack([obs_upper_bound, np.array([[act_hi] for i in range(self.NUM_DRONES)])])
+
+            action_history_size = (
+                self.ACTION_BUFFER_SIZE * self.ACTION_DIMENSTION
+            )
+
+            action_lower_bound = np.full(
+                (self.NUM_DRONES, action_history_size),
+                -1.0
+            )
+
+            action_upper_bound = np.full(
+                (self.NUM_DRONES, action_history_size),
+                1.0
+            )
+
+            obs_lower_bound = np.hstack([
+                obs_lower_bound,
+                action_lower_bound
+            ])
+
+            obs_upper_bound = np.hstack([
+                obs_upper_bound,
+                action_upper_bound
+            ])
+
             return spaces.Box(low=obs_lower_bound, high=obs_upper_bound, dtype=np.float32)
             ############################################################
         else:
             print("[ERROR] in BaseRLAviary._observationSpace()")
-    
+
     ################################################################################
 
     def _computeObs(self):
