@@ -2,7 +2,7 @@ import numpy as np
 from gymnasium import spaces
 from environments.BaseRLAviary import BaseRLAviary, FIRMWARE_NOMINAL_BATTERY_VOLTAGE
 from environments.utils.domain_randomization import InertiaRandomizationMixin, MassRandomizationMixin
-from environments.utils.enums import DroneModel, Physics, ActionType, ObservationType
+from environments.utils.enums import DroneModel, Physics, ActionType
 import pybullet as p
 
 
@@ -18,7 +18,6 @@ class ICRA27Env(InertiaRandomizationMixin, MassRandomizationMixin, BaseRLAviary)
                  ctrl_freq: int = 100,
                  gui=False,
                  record=False,
-                 observation_space: ObservationType = ObservationType.KIN,
                  action_space: ActionType = ActionType.RPM,
                  firmware_battery_voltage: float = FIRMWARE_NOMINAL_BATTERY_VOLTAGE,
                  mass_scale_range: tuple[float, float] = (0.90, 1.10),
@@ -38,7 +37,6 @@ class ICRA27Env(InertiaRandomizationMixin, MassRandomizationMixin, BaseRLAviary)
                          ctrl_freq=ctrl_freq,
                          gui=gui,
                          record=record,
-                         obs=observation_space,
                          act=action_space,
                          firmware_actuator=True,
                          firmware_battery_voltage=firmware_battery_voltage,

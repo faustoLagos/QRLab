@@ -21,16 +21,6 @@ class Physics(Enum):
 
 ################################################################################
 
-class ImageType(Enum):
-    """Camera capture image type enumeration class."""
-
-    RGB = 0     # Red, green, blue (and alpha)
-    DEP = 1     # Depth
-    SEG = 2     # Segmentation by object id
-    BW = 3      # Black and white
-
-################################################################################
-
 class ActionType(Enum):
     """Action type enumeration class."""
     RPM = "rpm"                 # RPMS
@@ -40,4 +30,3 @@ class ActionType(Enum):
 class ObservationType(Enum):
     """Observation type enumeration class."""
     KIN = "kin"     # Kinematic information (pose, linear and angular velocities)
-    RGB = "rgb"     # RGB camera capture in each drone's POV

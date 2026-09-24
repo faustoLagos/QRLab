@@ -16,7 +16,7 @@ from gymnasium import spaces
 
 from environments.BaseRLAviary import BaseRLAviary
 from environments.utils.domain_randomization import DomainRandomizationMixin
-from environments.utils.enums import ActionType, DroneModel, ObservationType, Physics
+from environments.utils.enums import ActionType, DroneModel, Physics
 
 
 class MonteCarloEnv(DomainRandomizationMixin, BaseRLAviary):
@@ -32,7 +32,6 @@ class MonteCarloEnv(DomainRandomizationMixin, BaseRLAviary):
         ctrl_freq: int = 100,
         gui: bool = False,
         record: bool = False,
-        observation_space: ObservationType = ObservationType.KIN,
         action_space: ActionType = ActionType.RPM,
         episode_length_seconds: float = 10.0,
         randomize_initial_conditions: bool = True,
@@ -81,7 +80,6 @@ class MonteCarloEnv(DomainRandomizationMixin, BaseRLAviary):
             ctrl_freq=ctrl_freq,
             gui=gui,
             record=record,
-            obs=observation_space,
             act=action_space,
             *args,
             **kwargs,

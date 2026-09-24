@@ -4,7 +4,7 @@ from gymnasium import spaces
 from collections import deque
 
 from environments.BaseAviary import BaseAviary
-from environments.utils.enums import DroneModel, Physics, ActionType, ObservationType, ImageType
+from environments.utils.enums import DroneModel, Physics, ActionType
 
 
 RPM_ACTION_REFERENCE_GRAVITY = 9.82
@@ -75,7 +75,7 @@ def simulate_firmware_actuator_path(
 
 class BaseRLAviary(BaseAviary):
     """Base single and multi-agent environment class for reinforcement learning."""
-    
+
     ################################################################################
 
     def __init__(self,
@@ -89,7 +89,6 @@ class BaseRLAviary(BaseAviary):
                  ctrl_freq: int = 240,
                  gui=False,
                  record=False,
-                 obs: ObservationType=ObservationType.KIN,
                  act: ActionType=ActionType.RPM,
                  firmware_actuator: bool=False,
                  firmware_battery_voltage: float=FIRMWARE_NOMINAL_BATTERY_VOLTAGE,
@@ -133,8 +132,6 @@ class BaseRLAviary(BaseAviary):
         self.ACTION_BUFFER_SIZE = int(ctrl_freq//2)
         self.action_buffer = deque(maxlen=self.ACTION_BUFFER_SIZE)
         ####
-        vision_attributes = True if obs == ObservationType.RGB else False
-        self.OBS_TYPE = obs
         self.ACT_TYPE = act
         self.FIRMWARE_ACTUATOR = firmware_actuator
         self.FIRMWARE_BATTERY_VOLTAGE = float(firmware_battery_voltage)
@@ -148,10 +145,8 @@ class BaseRLAviary(BaseAviary):
                          pyb_freq=pyb_freq,
                          ctrl_freq=ctrl_freq,
                          gui=gui,
-                         record=record, 
-                         obstacles=True, # Add obstacles for RGB observations and/or FlyThruGate
+                         record=record,
                          user_debug_gui=False, # Remove of RPM sliders from all single agent learning aviaries
-                         vision_attributes=vision_attributes,
                          )
         #### Fixed action normalization reference ##################
         self.ACTION_HOVER_RPM = calculate_hover_rpm(
@@ -159,39 +154,6 @@ class BaseRLAviary(BaseAviary):
             mass=float(self.M),
             thrust_coefficient=float(self.KF),
         )
-
-    ################################################################################
-
-    def _addObstacles(self):
-        """Add obstacles to the environment.
-
-        Only if the observation is of type RGB, 4 landmarks are added.
-        Overrides BaseAviary's method.
-
-        """
-        if self.OBS_TYPE == ObservationType.RGB:
-            p.loadURDF("block.urdf",
-                       [1, 0, .1],
-                       p.getQuaternionFromEuler([0, 0, 0]),
-                       physicsClientId=self.CLIENT
-                       )
-            p.loadURDF("cube_small.urdf",
-                       [0, 1, .1],
-                       p.getQuaternionFromEuler([0, 0, 0]),
-                       physicsClientId=self.CLIENT
-                       )
-            p.loadURDF("duck_vhacd.urdf",
-                       [-1, 0, .1],
-                       p.getQuaternionFromEuler([0, 0, 0]),
-                       physicsClientId=self.CLIENT
-                       )
-            p.loadURDF("teddy_vhacd.urdf",
-                       [0, -1, .1],
-                       p.getQuaternionFromEuler([0, 0, 0]),
-                       physicsClientId=self.CLIENT
-                       )
-        else:
-            pass
 
     ################################################################################
 
@@ -268,101 +230,3 @@ class BaseRLAviary(BaseAviary):
             )
 
         return rpm
-
-    ################################################################################
-
-    def _observationSpace(self):
-        """Returns the observation space of the environment.
-
-        Returns
-        -------
-        ndarray
-            A Box() of shape (NUM_DRONES,H,W,4) or (NUM_DRONES,12) depending on the observation type.
-
-        """
-        if self.OBS_TYPE == ObservationType.RGB:
-            return spaces.Box(low=0,
-                              high=255,
-                              shape=(self.NUM_DRONES, self.IMG_RES[1], self.IMG_RES[0], 4), dtype=np.uint8)
-        elif self.OBS_TYPE == ObservationType.KIN:
-            ############################################################
-            #### OBS SPACE OF SIZE 12
-            #### Observation vector ### X        Y        Z       Q1   Q2   Q3   Q4   R       P       Y       VX       VY       VZ       WX       WY       WZ
-            lo = -np.inf
-            hi = np.inf
-            obs_lower_bound = np.array([[lo,lo,0, lo,lo,lo,lo,lo,lo,lo,lo,lo] for i in range(self.NUM_DRONES)])
-            obs_upper_bound = np.array([[hi,hi,hi,hi,hi,hi,hi,hi,hi,hi,hi,hi] for i in range(self.NUM_DRONES)])
-            #### Add action buffer to observation space ################
-            act_lo = -1
-            act_hi = +1
-
-            action_history_size = (
-                self.ACTION_BUFFER_SIZE * self.ACTION_DIMENSTION
-            )
-
-            action_lower_bound = np.full(
-                (self.NUM_DRONES, action_history_size),
-                -1.0
-            )
-
-            action_upper_bound = np.full(
-                (self.NUM_DRONES, action_history_size),
-                1.0
-            )
-
-            obs_lower_bound = np.hstack([
-                obs_lower_bound,
-                action_lower_bound
-            ])
-
-            obs_upper_bound = np.hstack([
-                obs_upper_bound,
-                action_upper_bound
-            ])
-
-            return spaces.Box(low=obs_lower_bound, high=obs_upper_bound, dtype=np.float32)
-            ############################################################
-        else:
-            print("[ERROR] in BaseRLAviary._observationSpace()")
-
-    ################################################################################
-
-    def _computeObs(self):
-        """Returns the current observation of the environment.
-
-        Returns
-        -------
-        ndarray
-            A Box() of shape (NUM_DRONES,H,W,4) or (NUM_DRONES,12) depending on the observation type.
-
-        """
-        if self.OBS_TYPE == ObservationType.RGB:
-            if self.step_counter%self.IMG_CAPTURE_FREQ == 0:
-                for i in range(self.NUM_DRONES):
-                    self.rgb[i], self.dep[i], self.seg[i] = self._getDroneImages(i,
-                                                                                 segmentation=False
-                                                                                 )
-                    #### Printing observation to PNG frames example ############
-                    if self.RECORD:
-                        self._exportImage(img_type=ImageType.RGB,
-                                          img_input=self.rgb[i],
-                                          path=self.ONBOARD_IMG_PATH+"drone_"+str(i),
-                                          frame_num=int(self.step_counter/self.IMG_CAPTURE_FREQ)
-                                          )
-            return np.array([self.rgb[i] for i in range(self.NUM_DRONES)]).astype('float32')
-        elif self.OBS_TYPE == ObservationType.KIN:
-            ############################################################
-            #### OBS SPACE OF SIZE 12
-            obs_12 = np.zeros((self.NUM_DRONES,12))
-            for i in range(self.NUM_DRONES):
-                #obs = self._clipAndNormalizeState(self._getDroneStateVector(i))
-                obs = self._getDroneStateVector(i)
-                obs_12[i, :] = np.hstack([obs[0:3], obs[7:10], obs[10:13], obs[13:16]]).reshape(12,)
-            ret = np.array([obs_12[i, :] for i in range(self.NUM_DRONES)]).astype('float32')
-            #### Add action buffer to observation #######################
-            for i in range(self.ACTION_BUFFER_SIZE):
-                ret = np.hstack([ret, np.array([self.action_buffer[i][j, :] for j in range(self.NUM_DRONES)])])
-            return ret
-            ############################################################
-        else:
-            print("[ERROR] in BaseRLAviary._computeObs()")

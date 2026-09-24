@@ -4,7 +4,7 @@ import time
 import numpy as np
 from stable_baselines3 import PPO, SAC, DDPG, TD3
 from python_scripts.Logger import Logger
-from environments.utils.enums import ObservationType, ActionType
+from environments.utils.enums import ActionType
 from helpers.simulation import sync
 from helpers.cast import str2bool, in_degrees
 from environments import environment_map
@@ -112,10 +112,6 @@ def run_simulation(
 
     Returns:
         None
-
-    How To:
-        If you want the change the initial position of the camera, define it before the simulation loop:
-        p.resetDebugVisualizerCamera(1, 125, -10, [1, 1, 1])
     """
 
     model_map = {
@@ -139,7 +135,6 @@ def run_simulation(
         initial_xyzs=INIT_XYZS,
         initial_rpys=INIT_RPYS,
         gui=gui,
-        observation_space=ObservationType('kin'),
         action_space=ActionType('rpm'),
         record=record_video)
 

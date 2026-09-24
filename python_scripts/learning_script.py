@@ -12,11 +12,10 @@ from stable_baselines3.common.callbacks import (
     CheckpointCallback
     )
 from stable_baselines3.common.vec_env import SubprocVecEnv
-from environments.utils.enums import ObservationType, ActionType
+from environments.utils.enums import ActionType
 
 DEFAULT_OUTPUT_FOLDER = 'results'
 
-DEFAULT_OBS = ObservationType('kin')
 DEFAULT_ACT = ActionType('rpm')
 
 
@@ -196,7 +195,7 @@ if __name__ == '__main__':
         help='Folder where to save logs (default: "results")', metavar='')
     parser.add_argument(
         '--env_parameters',
-        default=dict(obs=DEFAULT_OBS, act=DEFAULT_ACT),
+        default=dict(act=DEFAULT_ACT),
         help="Parameters for the environment to learn"
     )
     parser.add_argument(
