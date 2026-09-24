@@ -90,7 +90,7 @@ class BaseAviary(gym.Env):
         self.USER_DEBUG = user_debug_gui
         self.ASSET_DIR = Path(__file__).resolve().parent / "assets"
         self.URDF = self.DRONE_MODEL.value + ".urdf"
-        self.URDF_PATH = ASSET_DIR / self.URDF
+        self.URDF_PATH = self.ASSET_DIR / self.URDF
         self.OUTPUT_FOLDER = output_folder
         #### Load the drone properties from the .urdf file #########
         self.M, \
@@ -515,7 +515,7 @@ class BaseAviary(gym.Env):
         #### Load ground plane, drone and obstacles models #########
         self.PLANE_ID = p.loadURDF("plane.urdf", physicsClientId=self.CLIENT)
 
-        self.DRONE_IDS = np.array([p.loadURDF(self.URDF_PATH,
+        self.DRONE_IDS = np.array([p.loadURDF(str(self.URDF_PATH),
                                               self.INIT_XYZS[i,:],
                                               p.getQuaternionFromEuler(self.INIT_RPYS[i,:]),
                                               flags = p.URDF_USE_INERTIA_FROM_FILE,
