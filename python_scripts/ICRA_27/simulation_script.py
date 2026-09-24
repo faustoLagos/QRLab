@@ -5,7 +5,8 @@ import numpy as np
 from stable_baselines3 import PPO, SAC, DDPG, TD3
 from python_scripts.Logger import Logger
 from environments.utils.enums import ObservationType, ActionType
-from gym_pybullet_drones.utils.utils import sync, str2bool
+from helpers.simulation import sync
+from helpers.cast import str2bool
 from environments import environment_map
 from python_scripts.simulation_helpers import get_policy, in_degrees
 import pandas as pd
