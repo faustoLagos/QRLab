@@ -6,9 +6,9 @@ from stable_baselines3 import PPO, SAC, DDPG, TD3
 from python_scripts.Logger import Logger
 from environments.utils.enums import ObservationType, ActionType
 from helpers.simulation import sync
-from helpers.cast import str2bool
+from helpers.cast import str2bool, in_degrees
 from environments import environment_map
-from python_scripts.simulation_helpers import get_policy, in_degrees
+from helpers.simulation import get_policy
 import pandas as pd
 import os
 
