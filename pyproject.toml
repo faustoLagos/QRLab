@@ -38,7 +38,7 @@ analysis = [
 [tool.setuptools.packages.find]
 where = ["."]
 include = [
-    "controllers*"
+    "controllers*",
     "environments",
     "environments.*",
     "helpers",
