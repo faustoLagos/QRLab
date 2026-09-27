@@ -12,13 +12,18 @@ from controllers import (
     CrazyfliePositionCommand,
     CrazyflieRuntimeState,
     CrazyflieVelocityCommand,
+    PositionActionBounds,
     TranslationalState,
+    VelocityActionLimits,
     create_cf21_plus_actuator_parameters,
     create_cf2_attitude_rate_parameters,
     create_cf2_outer_loop_parameters,
     initialize_crazyflie_runtime_state,
+    map_normalized_position_action,
+    map_normalized_velocity_action,
     run_position_control_substep,
     run_velocity_control_substep,
+    validate_crazyflie_control_frequencies,
 )
 
 
@@ -107,6 +112,8 @@ class BaseRLAviary(BaseAviary):
                  act: ActionType=ActionType.RPM,
                  firmware_actuator: bool=False,
                  firmware_battery_voltage: float=FIRMWARE_NOMINAL_BATTERY_VOLTAGE,
+                 position_action_bounds: PositionActionBounds | None=None,
+                 velocity_action_limits: VelocityActionLimits | None=None,
                  ):
         """Initialization of a generic single and multi-agent RL environment.
 
@@ -150,6 +157,16 @@ class BaseRLAviary(BaseAviary):
         self.ACT_TYPE = act
         self.FIRMWARE_ACTUATOR = firmware_actuator
         self.FIRMWARE_BATTERY_VOLTAGE = float(firmware_battery_voltage)
+        self.POSITION_ACTION_BOUNDS = position_action_bounds
+        self.VELOCITY_ACTION_LIMITS = velocity_action_limits
+
+        if self.ACT_TYPE in [ActionType.POSITION, ActionType.VELOCITY]:
+            validate_crazyflie_control_frequencies(
+                pybullet_frequency_hz=pyb_freq,
+                environment_frequency_hz=ctrl_freq,
+            )
+        self._validateHighLevelActionConfiguration()
+
         self.CRAZYFLIE_OUTER_PARAMETERS = create_cf2_outer_loop_parameters()
         self.CRAZYFLIE_INNER_PARAMETERS = create_cf2_attitude_rate_parameters()
         self.CRAZYFLIE_ACTUATOR_PARAMETERS = create_cf21_plus_actuator_parameters()
@@ -179,10 +196,12 @@ class BaseRLAviary(BaseAviary):
     ################################################################################
 
     def _actionSpace(self):
-        """Returns the normalized motor action space."""
+        """Returns the normalized four-dimensional action space."""
 
         action_dimensions = {
             ActionType.RPM: 4,
+            ActionType.POSITION: 4,
+            ActionType.VELOCITY: 4,
         }
 
         try:
@@ -231,11 +250,31 @@ class BaseRLAviary(BaseAviary):
     ################################################################################
 
     def _usesCrazyflieHighLevelControl(self) -> bool:
-        """Returns whether the high-level Crazyflie PID path is active.
+        """Returns whether the high-level Crazyflie PID path is active."""
+        return self.ACT_TYPE in [
+            ActionType.POSITION,
+            ActionType.VELOCITY,
+        ]
 
-        Step 6 will bind this to ActionType.POSITION and ActionType.VELOCITY.
-        """
-        return False
+    ################################################################################
+
+    def _validateHighLevelActionConfiguration(self) -> None:
+        """Validates the physical command mapping required by high-level actions."""
+        if (
+                self.ACT_TYPE == ActionType.POSITION
+                and self.POSITION_ACTION_BOUNDS is None
+        ):
+            raise ValueError(
+                "ActionType.POSITION requires position_action_bounds."
+            )
+
+        if (
+                self.ACT_TYPE == ActionType.VELOCITY
+                and self.VELOCITY_ACTION_LIMITS is None
+        ):
+            raise ValueError(
+                "ActionType.VELOCITY requires velocity_action_limits."
+            )
 
     ################################################################################
 
@@ -357,31 +396,79 @@ class BaseRLAviary(BaseAviary):
 
     ################################################################################
 
+    def _computeMotorRpmForSubstep(
+            self,
+            preprocessed_action,
+            local_substep_index: int,
+            global_substep_index: int,
+    ) -> np.ndarray:
+        """Routes each action representation to its motor-RPM execution path."""
+        if self.ACT_TYPE == ActionType.RPM:
+            return super()._computeMotorRpmForSubstep(
+                preprocessed_action=preprocessed_action,
+                local_substep_index=local_substep_index,
+                global_substep_index=global_substep_index,
+            )
+
+        if self.ACT_TYPE == ActionType.POSITION:
+            return self._computeCrazyfliePositionRpm(
+                commands=preprocessed_action,
+                global_substep_index=global_substep_index,
+            )
+
+        if self.ACT_TYPE == ActionType.VELOCITY:
+            return self._computeCrazyflieVelocityRpm(
+                commands=preprocessed_action,
+                global_substep_index=global_substep_index,
+            )
+
+        raise ValueError(f"Unsupported action type: {self.ACT_TYPE}")
+
+    ################################################################################
+
     def _preprocessAction(self,
                           action
                           ):
-        """Converts normalized motor actions into plant RPMs."""
-        self.action_buffer.append(action)
-        rpm = np.zeros((self.NUM_DRONES,4))
+        """Maps normalized actions to motor RPMs or high-level commands."""
+        normalized_action = np.asarray(action, dtype=np.float32).reshape(
+            self.NUM_DRONES,
+            4,
+        )
+        self.action_buffer.append(normalized_action)
 
-        for drone_id, target in enumerate(action):
-            if self.ACT_TYPE == ActionType.RPM:
+        if self.ACT_TYPE == ActionType.RPM:
+            rpm = np.zeros((self.NUM_DRONES, 4))
+            for drone_id, target in enumerate(normalized_action):
                 commanded_rpm = np.asarray(
                     self.ACTION_HOVER_RPM * (1.0 + 0.5 * target),
                     dtype=np.float64
                 )
-            else:
-                raise ValueError(
-                    f"Unsupported action type: {self.ACT_TYPE}"
+                rpm[drone_id] = (
+                    simulate_firmware_actuator_path(
+                        commanded_rpm=commanded_rpm,
+                        supply_voltage=self.FIRMWARE_BATTERY_VOLTAGE
+                    )
+                    if self.FIRMWARE_ACTUATOR
+                    else commanded_rpm
                 )
+            return rpm
 
-            rpm[drone_id] = (
-                simulate_firmware_actuator_path(
-                    commanded_rpm=commanded_rpm,
-                    supply_voltage=self.FIRMWARE_BATTERY_VOLTAGE
+        if self.ACT_TYPE == ActionType.POSITION:
+            return tuple(
+                map_normalized_position_action(
+                    normalized_action=target,
+                    bounds=self.POSITION_ACTION_BOUNDS,
                 )
-                if self.FIRMWARE_ACTUATOR
-                else commanded_rpm
+                for target in normalized_action
             )
 
-        return rpm
+        if self.ACT_TYPE == ActionType.VELOCITY:
+            return tuple(
+                map_normalized_velocity_action(
+                    normalized_action=target,
+                    limits=self.VELOCITY_ACTION_LIMITS,
+                )
+                for target in normalized_action
+            )
+
+        raise ValueError(f"Unsupported action type: {self.ACT_TYPE}")

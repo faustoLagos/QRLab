@@ -23,7 +23,9 @@ class Physics(Enum):
 
 class ActionType(Enum):
     """Action type enumeration class."""
-    RPM = "rpm"                 # RPMS
+    RPM = "rpm"
+    POSITION = "position"
+    VELOCITY = "velocity"
 
 ################################################################################
 
