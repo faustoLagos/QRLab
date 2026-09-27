@@ -1,7 +1,10 @@
 from dataclasses import dataclass, field, replace
 from math import pi
+from pathlib import Path
+from typing import Any
 
 import numpy as np
+import yaml
 from gymnasium import spaces
 
 from controllers import (
@@ -19,6 +22,28 @@ from environments.utils.enums import ActionType, DroneModel, Physics
 
 PYB_FREQUENCY_HZ = 1000
 CONTROL_FREQUENCY_HZ = 100
+
+PID_LOOP_NAMES = (
+    "position_x",
+    "position_y",
+    "position_z",
+    "velocity_x",
+    "velocity_y",
+    "velocity_z",
+    "attitude_roll",
+    "attitude_pitch",
+    "attitude_yaw",
+    "rate_roll",
+    "rate_pitch",
+    "rate_yaw",
+)
+
+PID_GAIN_NAMES = (
+    "kp",
+    "ki",
+    "kd",
+    "kff",
+)
 
 
 @dataclass(frozen=True)
@@ -66,6 +91,142 @@ class PIDSimulationConfig:
             maximum_absolute=(1.0, 1.0, 1.0, pi),
             body_frame=False,
         )
+    )
+
+
+def _validate_gain_value(
+    loop_name: str,
+    gain_name: str,
+    raw_value: Any,
+) -> float:
+    if isinstance(raw_value, bool) or not isinstance(raw_value, (int, float)):
+        raise ValueError(
+            f"PID gain '{loop_name}.{gain_name}' must be a finite numeric scalar."
+        )
+
+    gain_value = float(raw_value)
+
+    if not np.isfinite(gain_value):
+        raise ValueError(
+            f"PID gain '{loop_name}.{gain_name}' must be finite."
+        )
+
+    return gain_value
+
+
+def _validate_pid_gain_mapping(
+    loop_name: str,
+    raw_mapping: Any,
+) -> dict[str, float]:
+    if not isinstance(raw_mapping, dict):
+        raise ValueError(
+            f"PID loop '{loop_name}' must contain a mapping of gains."
+        )
+
+    non_string_gain_names = [
+        gain_name
+        for gain_name in raw_mapping
+        if not isinstance(gain_name, str)
+    ]
+    if non_string_gain_names:
+        raise ValueError(
+            f"PID loop '{loop_name}' contains non-string gain name(s): "
+            f"{', '.join(map(str, non_string_gain_names))}."
+        )
+
+    unknown_gain_names = sorted(
+        set(raw_mapping) - set(PID_GAIN_NAMES)
+    )
+
+    if unknown_gain_names:
+        raise ValueError(
+            f"Unknown gain(s) for PID loop '{loop_name}': "
+            f"{', '.join(unknown_gain_names)}. "
+            f"Allowed gains: {', '.join(PID_GAIN_NAMES)}."
+        )
+
+    return {
+        gain_name: _validate_gain_value(
+            loop_name=loop_name,
+            gain_name=gain_name,
+            raw_value=raw_value,
+        )
+        for gain_name, raw_value in raw_mapping.items()
+    }
+
+
+def _validate_pid_gain_document(
+    raw_document: Any,
+) -> dict[str, dict[str, float]]:
+    if raw_document is None:
+        return {}
+
+    if not isinstance(raw_document, dict):
+        raise ValueError(
+            "The PID gain YAML root must be a mapping of PID loop names."
+        )
+
+    non_string_loop_names = [
+        loop_name
+        for loop_name in raw_document
+        if not isinstance(loop_name, str)
+    ]
+    if non_string_loop_names:
+        raise ValueError(
+            "PID loop names must be strings. Invalid key(s): "
+            f"{', '.join(map(str, non_string_loop_names))}."
+        )
+
+    unknown_loop_names = sorted(
+        set(raw_document) - set(PID_LOOP_NAMES)
+    )
+
+    if unknown_loop_names:
+        raise ValueError(
+            "Unknown PID loop(s): "
+            f"{', '.join(unknown_loop_names)}. "
+            "Allowed loops: "
+            f"{', '.join(PID_LOOP_NAMES)}."
+        )
+
+    return {
+        loop_name: _validate_pid_gain_mapping(
+            loop_name=loop_name,
+            raw_mapping=raw_mapping,
+        )
+        for loop_name, raw_mapping in raw_document.items()
+    }
+
+
+def load_pid_gain_overrides(
+    yaml_path: Path | None,
+) -> PIDSimulationGainOverrides:
+    """Load sparse simulation-only PID gain overrides from YAML."""
+    if yaml_path is None:
+        return PIDSimulationGainOverrides()
+
+    resolved_path = Path(yaml_path).expanduser()
+
+    if not resolved_path.is_file():
+        raise FileNotFoundError(
+            f"PID gain YAML file not found: {resolved_path}"
+        )
+
+    try:
+        with resolved_path.open("r", encoding="utf-8") as yaml_file:
+            raw_document = yaml.safe_load(yaml_file)
+    except yaml.YAMLError as error:
+        raise ValueError(
+            f"Invalid YAML in PID gain file '{resolved_path}': {error}"
+        ) from error
+
+    validated_document = _validate_pid_gain_document(raw_document)
+
+    return PIDSimulationGainOverrides(
+        **{
+            loop_name: PidGainOverride(**gain_values)
+            for loop_name, gain_values in validated_document.items()
+        }
     )
 
 
@@ -165,12 +326,7 @@ def normalize_position_command(
 ) -> np.ndarray:
     """Map a physical position/yaw command to the normalized action space."""
     physical_command = np.array(
-        [
-            target_xyz[0],
-            target_xyz[1],
-            target_xyz[2],
-            target_yaw_radians,
-        ],
+        [target_xyz[0], target_xyz[1], target_xyz[2], target_yaw_radians],
         dtype=np.float64,
     )
     lower = np.asarray(bounds.minimum, dtype=np.float64)
@@ -181,9 +337,7 @@ def normalize_position_command(
             f"Position command {physical_command} lies outside [{lower}, {upper}]."
         )
 
-    normalized_action = (
-        2.0 * (physical_command - lower) / (upper - lower) - 1.0
-    )
+    normalized_action = 2.0 * (physical_command - lower) / (upper - lower) - 1.0
     return normalized_action.reshape(1, 4).astype(np.float32)
 
 
@@ -202,10 +356,7 @@ def normalize_velocity_command(
         ],
         dtype=np.float64,
     )
-    maximum_absolute = np.asarray(
-        limits.maximum_absolute,
-        dtype=np.float64,
-    )
+    maximum_absolute = np.asarray(limits.maximum_absolute, dtype=np.float64)
 
     if np.any(np.abs(physical_command) > maximum_absolute):
         raise ValueError(
@@ -248,9 +399,7 @@ class PIDSimulationEnv(BaseRLAviary):
         record: bool = False,
     ) -> None:
         simulation_config = config or PIDSimulationConfig()
-        simulation_gain_overrides = (
-            gain_overrides or PIDSimulationGainOverrides()
-        )
+        simulation_gain_overrides = gain_overrides or PIDSimulationGainOverrides()
         initial_position = (
             np.array([0.0, 0.0, 0.1], dtype=np.float64)
             if initial_xyz is None
@@ -289,15 +438,11 @@ class PIDSimulationEnv(BaseRLAviary):
             ),
         )
 
-        self.CRAZYFLIE_OUTER_PARAMETERS = (
-            create_simulation_outer_loop_parameters(
-                simulation_gain_overrides
-            )
+        self.CRAZYFLIE_OUTER_PARAMETERS = create_simulation_outer_loop_parameters(
+            simulation_gain_overrides
         )
-        self.CRAZYFLIE_INNER_PARAMETERS = (
-            create_simulation_attitude_rate_parameters(
-                simulation_gain_overrides
-            )
+        self.CRAZYFLIE_INNER_PARAMETERS = create_simulation_attitude_rate_parameters(
+            simulation_gain_overrides
         )
         self._initializeCrazyflieRuntimeStates()
 
@@ -308,9 +453,7 @@ class PIDSimulationEnv(BaseRLAviary):
     ) -> np.ndarray:
         """Create a normalized action from a physical position setpoint."""
         if self.ACT_TYPE != ActionType.POSITION:
-            raise ValueError(
-                "Position commands require ActionType.POSITION."
-            )
+            raise ValueError("Position commands require ActionType.POSITION.")
 
         return normalize_position_command(
             target_xyz=np.asarray(target_xyz, dtype=np.float64),
@@ -325,33 +468,21 @@ class PIDSimulationEnv(BaseRLAviary):
     ) -> np.ndarray:
         """Create a normalized action from a physical velocity setpoint."""
         if self.ACT_TYPE != ActionType.VELOCITY:
-            raise ValueError(
-                "Velocity commands require ActionType.VELOCITY."
-            )
+            raise ValueError("Velocity commands require ActionType.VELOCITY.")
 
         return normalize_velocity_command(
             target_velocity=np.asarray(target_velocity, dtype=np.float64),
-            target_yaw_rate_radians_per_second=(
-                target_yaw_rate_radians_per_second
-            ),
+            target_yaw_rate_radians_per_second=target_yaw_rate_radians_per_second,
             limits=self.PID_SIMULATION_CONFIG.velocity_action_limits,
         )
 
     def _observationSpace(self) -> spaces.Box:
         lower = np.full((1, 16), -np.inf, dtype=np.float32)
         upper = np.full((1, 16), np.inf, dtype=np.float32)
-        return spaces.Box(
-            low=lower,
-            high=upper,
-            dtype=np.float32,
-        )
+        return spaces.Box(low=lower, high=upper, dtype=np.float32)
 
     def _computeObs(self) -> np.ndarray:
-        return (
-            self._getDroneStateVector(0)[:16]
-            .reshape(1, 16)
-            .astype(np.float32)
-        )
+        return self._getDroneStateVector(0)[:16].reshape(1, 16).astype(np.float32)
 
     def _computeReward(self) -> float:
         return 0.0

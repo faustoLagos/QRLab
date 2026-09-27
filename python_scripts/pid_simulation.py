@@ -11,9 +11,8 @@ import numpy as np
 
 from environments.pid_simulation_env import (
     PIDSimulationEnv,
-    PIDSimulationGainOverrides,
-    PidGainOverride,
     create_pid_simulation_config,
+    load_pid_gain_overrides,
 )
 from environments.utils.enums import ActionType
 
@@ -34,21 +33,6 @@ class SimulationSample:
     filtered_battery_voltage: float
 
 
-def create_gain_overrides(
-    velocity_z_kp: float | None,
-    velocity_z_ki: float | None,
-    velocity_z_kd: float | None,
-) -> PIDSimulationGainOverrides:
-    """Create simulation-only vertical velocity PID overrides."""
-    return PIDSimulationGainOverrides(
-        velocity_z=PidGainOverride(
-            kp=velocity_z_kp,
-            ki=velocity_z_ki,
-            kd=velocity_z_kd,
-        )
-    )
-
-
 def create_simulation_action(
     environment: PIDSimulationEnv,
     args: argparse.Namespace,
@@ -56,27 +40,19 @@ def create_simulation_action(
     """Create the normalized command for the selected simulation mode."""
     if environment.ACT_TYPE == ActionType.POSITION:
         return environment.create_position_action(
-            target_xyz=np.asarray(
-                args.target_position,
-                dtype=np.float64,
-            ),
+            target_xyz=np.asarray(args.target_position, dtype=np.float64),
             target_yaw_radians=radians(args.target_yaw_deg),
         )
 
     if environment.ACT_TYPE == ActionType.VELOCITY:
         return environment.create_velocity_action(
-            target_velocity=np.asarray(
-                args.target_velocity,
-                dtype=np.float64,
-            ),
+            target_velocity=np.asarray(args.target_velocity, dtype=np.float64),
             target_yaw_rate_radians_per_second=radians(
                 args.target_yaw_rate_deg_per_second
             ),
         )
 
-    raise ValueError(
-        "PID simulation supports only position or velocity mode."
-    )
+    raise ValueError("PID simulation supports only position or velocity mode.")
 
 
 def read_simulation_sample(
@@ -96,12 +72,8 @@ def read_simulation_sample(
         linear_velocity=state[10:13].copy(),
         angular_velocity_world=state[13:16].copy(),
         motor_rpm=state[16:20].copy(),
-        desired_roll_degrees=float(
-            outer_output.roll_degrees
-        ),
-        desired_pitch_degrees=float(
-            outer_output.pitch_degrees
-        ),
+        desired_roll_degrees=float(outer_output.roll_degrees),
+        desired_pitch_degrees=float(outer_output.pitch_degrees),
         desired_velocity_body=np.array(
             [
                 outer_output.velocity_setpoint_body_x,
@@ -127,9 +99,7 @@ def read_simulation_sample(
             ],
             dtype=np.float64,
         ),
-        filtered_battery_voltage=float(
-            runtime_state.battery.supply_voltage
-        ),
+        filtered_battery_voltage=float(runtime_state.battery.supply_voltage),
     )
 
 
@@ -138,10 +108,7 @@ def write_samples_to_csv(
     output_path: Path,
 ) -> None:
     """Write PID simulation signals to CSV."""
-    output_path.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     header = [
         "time_s",
@@ -206,27 +173,10 @@ def synchronize_simulation(
 ) -> None:
     """Synchronize GUI simulation approximately to wall-clock time."""
     target_elapsed = completed_steps * timestep_seconds
-    remaining = target_elapsed - (
-        time.perf_counter() - start_time
-    )
+    remaining = target_elapsed - (time.perf_counter() - start_time)
 
     if remaining > 0.0:
         time.sleep(remaining)
-
-
-def print_active_vertical_velocity_gains(
-    environment: PIDSimulationEnv,
-) -> None:
-    """Print the active simulation-side vertical velocity PID gains."""
-    velocity_z = (
-        environment.CRAZYFLIE_OUTER_PARAMETERS.velocity_z
-    )
-    print(
-        "Active velocity-Z PID gains: "
-        f"Kp={velocity_z.kp}, "
-        f"Ki={velocity_z.ki}, "
-        f"Kd={velocity_z.kd}"
-    )
 
 
 def run_pid_simulation(
@@ -238,23 +188,13 @@ def run_pid_simulation(
         battery_voltage=args.battery_voltage,
         body_frame_velocity=args.body_frame_velocity,
     )
-    gain_overrides = create_gain_overrides(
-        velocity_z_kp=args.velocity_z_kp,
-        velocity_z_ki=args.velocity_z_ki,
-        velocity_z_kd=args.velocity_z_kd,
-    )
+    gain_overrides = load_pid_gain_overrides(args.pid_gains)
 
     environment = PIDSimulationEnv(
         action_type=action_type,
-        initial_xyz=np.asarray(
-            args.initial_position,
-            dtype=np.float64,
-        ),
+        initial_xyz=np.asarray(args.initial_position, dtype=np.float64),
         initial_rpy=np.radians(
-            np.asarray(
-                args.initial_rpy_deg,
-                dtype=np.float64,
-            )
+            np.asarray(args.initial_rpy_deg, dtype=np.float64)
         ),
         config=simulation_config,
         gain_overrides=gain_overrides,
@@ -269,22 +209,14 @@ def run_pid_simulation(
 
     try:
         environment.reset()
-        print_active_vertical_velocity_gains(environment)
 
-        total_steps = int(
-            round(
-                args.duration_seconds
-                * environment.CTRL_FREQ
-            )
-        )
+        total_steps = int(round(args.duration_seconds * environment.CTRL_FREQ))
         start_time = time.perf_counter()
 
         for step_index in range(total_steps):
             environment.step(normalized_action)
 
-            sample_time = (
-                step_index + 1
-            ) / environment.CTRL_FREQ
+            sample_time = (step_index + 1) / environment.CTRL_FREQ
             samples.append(
                 read_simulation_sample(
                     environment=environment,
@@ -327,9 +259,7 @@ def run_pid_simulation(
 def parse_arguments() -> argparse.Namespace:
     """Parse standalone PID simulation arguments."""
     parser = argparse.ArgumentParser(
-        description=(
-            "Run the QRLab firmware-like Crazyflie PID controller."
-        )
+        description="Run the QRLab firmware-like Crazyflie PID controller."
     )
 
     parser.add_argument(
@@ -362,25 +292,17 @@ def parse_arguments() -> argparse.Namespace:
         default=3.7,
     )
     parser.add_argument(
-        "--gui",
-        action="store_true",
-    )
-    parser.add_argument(
-        "--real-time",
-        action="store_true",
-    )
-    parser.add_argument(
-        "--record-video",
-        action="store_true",
-    )
-    parser.add_argument(
-        "--csv",
+        "--pid-gains",
         type=Path,
+        default=None,
+        help="Sparse YAML file containing simulation-only PID gain overrides.",
     )
+    parser.add_argument("--gui", action="store_true")
+    parser.add_argument("--real-time", action="store_true")
+    parser.add_argument("--record-video", action="store_true")
+    parser.add_argument("--csv", type=Path)
 
-    position_group = parser.add_argument_group(
-        "position command"
-    )
+    position_group = parser.add_argument_group("position command")
     position_group.add_argument(
         "--target-position",
         nargs=3,
@@ -394,9 +316,7 @@ def parse_arguments() -> argparse.Namespace:
         default=0.0,
     )
 
-    velocity_group = parser.add_argument_group(
-        "velocity command"
-    )
+    velocity_group = parser.add_argument_group("velocity command")
     velocity_group.add_argument(
         "--target-velocity",
         nargs=3,
@@ -412,25 +332,6 @@ def parse_arguments() -> argparse.Namespace:
     velocity_group.add_argument(
         "--body-frame-velocity",
         action="store_true",
-    )
-
-    tuning_group = parser.add_argument_group(
-        "simulation-only PID tuning"
-    )
-    tuning_group.add_argument(
-        "--velocity-z-kp",
-        type=float,
-        default=None,
-    )
-    tuning_group.add_argument(
-        "--velocity-z-ki",
-        type=float,
-        default=None,
-    )
-    tuning_group.add_argument(
-        "--velocity-z-kd",
-        type=float,
-        default=None,
     )
 
     return parser.parse_args()

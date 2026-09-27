@@ -21,7 +21,8 @@ dependencies = [
     "matplotlib>=3.10,<4",
     "cycler>=0.12,<1",
     "pandas>=2.2,<4",
-    "tensorboard>=2.17,<3"
+    "tensorboard>=2.17,<3",
+    "PyYAML>=6,<7"
 ]
 
 [project.optional-dependencies]

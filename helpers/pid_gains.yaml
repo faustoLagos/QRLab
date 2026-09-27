@@ -1,0 +1,5 @@
+# Sparse simulation-only PID gain overrides.
+# Omitted PID loops and omitted gains keep their firmware default values.
+
+position_z:
+  kd: 3.0
