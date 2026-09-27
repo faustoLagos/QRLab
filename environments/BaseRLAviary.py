@@ -5,6 +5,21 @@ from collections import deque
 
 from environments.BaseAviary import BaseAviary
 from environments.utils.enums import DroneModel, Physics, ActionType
+from controllers import (
+    AttitudeMeasurement,
+    BodyRateMeasurement,
+    CrazyflieControllerMeasurements,
+    CrazyfliePositionCommand,
+    CrazyflieRuntimeState,
+    CrazyflieVelocityCommand,
+    TranslationalState,
+    create_cf21_plus_actuator_parameters,
+    create_cf2_attitude_rate_parameters,
+    create_cf2_outer_loop_parameters,
+    initialize_crazyflie_runtime_state,
+    run_position_control_substep,
+    run_velocity_control_substep,
+)
 
 
 RPM_ACTION_REFERENCE_GRAVITY = 9.82
@@ -135,6 +150,11 @@ class BaseRLAviary(BaseAviary):
         self.ACT_TYPE = act
         self.FIRMWARE_ACTUATOR = firmware_actuator
         self.FIRMWARE_BATTERY_VOLTAGE = float(firmware_battery_voltage)
+        self.CRAZYFLIE_OUTER_PARAMETERS = create_cf2_outer_loop_parameters()
+        self.CRAZYFLIE_INNER_PARAMETERS = create_cf2_attitude_rate_parameters()
+        self.CRAZYFLIE_ACTUATOR_PARAMETERS = create_cf21_plus_actuator_parameters()
+        self.CRAZYFLIE_RUNTIME_STATES: tuple[CrazyflieRuntimeState, ...] = ()
+        self.CRAZYFLIE_RUNTIME_RESET_PENDING = False
 
         super().__init__(drone_model=drone_model,
                          num_drones=num_drones,
@@ -154,6 +174,7 @@ class BaseRLAviary(BaseAviary):
             mass=float(self.M),
             thrust_coefficient=float(self.KF),
         )
+        self._initializeCrazyflieRuntimeStates()
 
     ################################################################################
 
@@ -199,6 +220,140 @@ class BaseRLAviary(BaseAviary):
         """Resets RL-controller state shared by all RL environments."""
         super()._resetControllerState(options=options)
         self._resetActionBuffer()
+        self.CRAZYFLIE_RUNTIME_RESET_PENDING = True
+
+    ################################################################################
+
+    def _requiresSubstepKinematicUpdate(self) -> bool:
+        """Requests 1 kHz state refreshes when firmware-style control is active."""
+        return self._usesCrazyflieHighLevelControl()
+
+    ################################################################################
+
+    def _usesCrazyflieHighLevelControl(self) -> bool:
+        """Returns whether the high-level Crazyflie PID path is active.
+
+        Step 6 will bind this to ActionType.POSITION and ActionType.VELOCITY.
+        """
+        return False
+
+    ################################################################################
+
+    def _initializeCrazyflieRuntimeStates(self) -> None:
+        """Initializes one independent firmware-style controller state per drone."""
+        self.CRAZYFLIE_RUNTIME_STATES = tuple(
+            initialize_crazyflie_runtime_state(
+                measurements=self._getCrazyflieControllerMeasurements(drone_id),
+                outer_parameters=self.CRAZYFLIE_OUTER_PARAMETERS,
+            )
+            for drone_id in range(self.NUM_DRONES)
+        )
+        self.CRAZYFLIE_RUNTIME_RESET_PENDING = False
+
+    ################################################################################
+
+    def _ensureCrazyflieRuntimeStateIsInitialized(self) -> None:
+        """Resets PID state only after reset-time kinematics have been refreshed."""
+        if self.CRAZYFLIE_RUNTIME_RESET_PENDING:
+            self._initializeCrazyflieRuntimeStates()
+
+    ################################################################################
+
+    def _getCrazyflieControllerMeasurements(
+            self,
+            drone_id: int,
+    ) -> CrazyflieControllerMeasurements:
+        """Builds firmware-coordinate measurements from QRLab/PyBullet state."""
+        body_rates_radians = self._convertWorldVectorToBodyFrame(
+            vector_world=self.ang_v[drone_id],
+            quaternion_xyzw=self.quat[drone_id],
+        )
+        body_rates_degrees = body_rates_radians * self.RAD2DEG
+
+        yaw_degrees = float(self.rpy[drone_id, 2] * self.RAD2DEG)
+        return CrazyflieControllerMeasurements(
+            translation=TranslationalState(
+                x=float(self.pos[drone_id, 0]),
+                y=float(self.pos[drone_id, 1]),
+                z=float(self.pos[drone_id, 2]),
+                vx=float(self.vel[drone_id, 0]),
+                vy=float(self.vel[drone_id, 1]),
+                vz=float(self.vel[drone_id, 2]),
+                yaw_degrees=yaw_degrees,
+            ),
+            attitude=AttitudeMeasurement(
+                roll_degrees=float(self.rpy[drone_id, 0] * self.RAD2DEG),
+                pitch_degrees=float(-self.rpy[drone_id, 1] * self.RAD2DEG),
+                yaw_degrees=yaw_degrees,
+            ),
+            body_rates=BodyRateMeasurement(
+                roll_degrees_per_second=float(body_rates_degrees[0]),
+                pitch_degrees_per_second=float(-body_rates_degrees[1]),
+                yaw_degrees_per_second=float(body_rates_degrees[2]),
+            ),
+        )
+
+    ################################################################################
+
+    def _computeCrazyfliePositionRpm(
+            self,
+            commands: tuple[CrazyfliePositionCommand, ...],
+            global_substep_index: int,
+    ) -> np.ndarray:
+        """Runs one 1 kHz firmware step for absolute-position commands."""
+        self._ensureCrazyflieRuntimeStateIsInitialized()
+
+        results = tuple(
+            run_position_control_substep(
+                stabilizer_step_index=global_substep_index,
+                command=command,
+                measurements=self._getCrazyflieControllerMeasurements(drone_id),
+                measured_battery_voltage=self.FIRMWARE_BATTERY_VOLTAGE,
+                runtime_state=self.CRAZYFLIE_RUNTIME_STATES[drone_id],
+                outer_parameters=self.CRAZYFLIE_OUTER_PARAMETERS,
+                inner_parameters=self.CRAZYFLIE_INNER_PARAMETERS,
+                actuator_parameters=self.CRAZYFLIE_ACTUATOR_PARAMETERS,
+            )
+            for drone_id, command in enumerate(commands)
+        )
+        self.CRAZYFLIE_RUNTIME_STATES = tuple(
+            runtime_state for _, runtime_state in results
+        )
+        return np.asarray(
+            [motor_rpm for motor_rpm, _ in results],
+            dtype=np.float64,
+        )
+
+    ################################################################################
+
+    def _computeCrazyflieVelocityRpm(
+            self,
+            commands: tuple[CrazyflieVelocityCommand, ...],
+            global_substep_index: int,
+    ) -> np.ndarray:
+        """Runs one 1 kHz firmware step for velocity/yaw-rate commands."""
+        self._ensureCrazyflieRuntimeStateIsInitialized()
+
+        results = tuple(
+            run_velocity_control_substep(
+                stabilizer_step_index=global_substep_index,
+                command=command,
+                measurements=self._getCrazyflieControllerMeasurements(drone_id),
+                measured_battery_voltage=self.FIRMWARE_BATTERY_VOLTAGE,
+                runtime_state=self.CRAZYFLIE_RUNTIME_STATES[drone_id],
+                outer_parameters=self.CRAZYFLIE_OUTER_PARAMETERS,
+                inner_parameters=self.CRAZYFLIE_INNER_PARAMETERS,
+                actuator_parameters=self.CRAZYFLIE_ACTUATOR_PARAMETERS,
+            )
+            for drone_id, command in enumerate(commands)
+        )
+        self.CRAZYFLIE_RUNTIME_STATES = tuple(
+            runtime_state for _, runtime_state in results
+        )
+        return np.asarray(
+            [motor_rpm for motor_rpm, _ in results],
+            dtype=np.float64,
+        )
 
     ################################################################################
 

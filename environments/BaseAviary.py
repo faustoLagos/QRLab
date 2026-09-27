@@ -261,6 +261,26 @@ class BaseAviary(gym.Env):
 
     ################################################################################
 
+    def _requiresSubstepKinematicUpdate(self) -> bool:
+        """Returns whether a controller requires fresh state at every physics substep."""
+        return False
+
+    ################################################################################
+
+    def _computeMotorRpmForSubstep(
+            self,
+            preprocessed_action,
+            local_substep_index: int,
+            global_substep_index: int,
+    ) -> np.ndarray:
+        """Returns the motor RPM command applied during one physics substep."""
+        return np.asarray(preprocessed_action, dtype=np.float64).reshape(
+            self.NUM_DRONES,
+            4,
+        )
+
+    ################################################################################
+
     def step(self,
              action
              ):
@@ -316,7 +336,8 @@ class BaseAviary(gym.Env):
         if self.USE_GUI_RPM:
             for i in range(4):
                 self.gui_input[i] = p.readUserDebugParameter(int(self.SLIDERS[i]), physicsClientId=self.CLIENT)
-            clipped_action = np.tile(self.gui_input, (self.NUM_DRONES, 1))
+            preprocessed_action = np.tile(self.gui_input, (self.NUM_DRONES, 1))
+            use_direct_gui_rpm = True
             if self.step_counter%(self.PYB_FREQ/2) == 0:
                 self.GUI_INPUT_TEXT = [p.addUserDebugText("Using GUI RPM",
                                                           textPosition=[0, 0, 0],
@@ -328,15 +349,42 @@ class BaseAviary(gym.Env):
                                                           replaceItemUniqueId=int(self.GUI_INPUT_TEXT[i]),
                                                           physicsClientId=self.CLIENT
                                                           ) for i in range(self.NUM_DRONES)]
-        #### Save, preprocess, and clip the action to the max. RPM #
+        #### Preprocess the environment action once per control step
         else:
-            clipped_action = np.reshape(self._preprocessAction(action), (self.NUM_DRONES, 4))
+            preprocessed_action = self._preprocessAction(action)
+            use_direct_gui_rpm = False
         #### Repeat for as many as the aggregate physics steps #####
-        for _ in range(self.PYB_STEPS_PER_CTRL):
+        for local_substep_index in range(self.PYB_STEPS_PER_CTRL):
+            global_substep_index = self.step_counter + local_substep_index
             #### Update and store the drones kinematic info for certain
             #### Between aggregate steps for certain types of update ###
-            if self.PYB_STEPS_PER_CTRL > 1 and self.PHYSICS in [Physics.DYN, Physics.PYB_GND, Physics.PYB_DRAG, Physics.PYB_DW, Physics.PYB_GND_DRAG_DW]:
+            physics_requires_kinematics = self.PHYSICS in [
+                Physics.DYN,
+                Physics.PYB_GND,
+                Physics.PYB_DRAG,
+                Physics.PYB_DW,
+                Physics.PYB_GND_DRAG_DW,
+            ]
+            controller_requires_kinematics = self._requiresSubstepKinematicUpdate()
+            if self.PYB_STEPS_PER_CTRL > 1 and (
+                    physics_requires_kinematics
+                    or controller_requires_kinematics
+            ):
                 self._updateAndStoreKinematicInformation()
+
+            #### Compute the motor command for this physics substep
+            clipped_action = (
+                np.asarray(preprocessed_action, dtype=np.float64).reshape(
+                    self.NUM_DRONES,
+                    4,
+                )
+                if use_direct_gui_rpm
+                else self._computeMotorRpmForSubstep(
+                    preprocessed_action=preprocessed_action,
+                    local_substep_index=local_substep_index,
+                    global_substep_index=global_substep_index,
+                )
+            )
             #### Step the simulation using the desired physics update ##
             for i in range (self.NUM_DRONES):
                 if self.PHYSICS == Physics.PYB:
