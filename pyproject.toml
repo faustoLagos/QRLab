@@ -30,6 +30,10 @@ optimization = [
     "optuna>=4,<5"
 ]
 
+mpc = [
+    "osqp>=1,<2"
+]
+
 analysis = [
     "rich>=13",
     "textual>=0.80",

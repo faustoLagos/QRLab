@@ -1,0 +1,29 @@
+# Example MPC Q/R tuning overrides.
+# Every section and individual key is optional; omitted values retain QRLab defaults.
+# State weights populate the Q diagonal in
+# [x, y, z, vx, vy, vz, roll, pitch, yaw, p, q, r] order.
+# Input weights apply to normalized [delta_thrust, tau_x, tau_y, tau_z]
+# and are converted internally to the equivalent physical-input R matrix.
+
+state_weights:
+  position_x: 50.0
+  position_y: 50.0
+  position_z: 85.0
+
+  velocity_x: 8.0
+  velocity_y: 8.0
+  velocity_z: 14.0
+
+  roll: 15.0
+  pitch: 15.0
+  yaw: 22.0
+
+  rate_roll: 0.75
+  rate_pitch: 0.75
+  rate_yaw: 0.75
+
+input_weights:
+  thrust: 0.40
+  torque_roll: 0.10
+  torque_pitch: 0.10
+  torque_yaw: 0.08
