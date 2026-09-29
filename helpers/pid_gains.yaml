@@ -1,5 +1,52 @@
 # Sparse simulation-only PID gain overrides.
 # Omitted PID loops and omitted gains keep their firmware default values.
 
+position_x:
+  kp: 1.5
+  ki: 0.0
+  kd: 0.0
+
+position_y:
+  kp: 1.5
+  ki: 0.0
+  kd: 0.0
+
 position_z:
-  kd: 3.0
+  kp: 3.5
+  ki: 0.0
+  kd: 0.1
+
+velocity_x:
+  kp: 10.0
+  ki: 0.1
+  kd: 0.0
+
+velocity_y:
+  kp: 10.0
+  ki: 0.1
+  kd: 0.0
+
+velocity_z:
+  kp: 130.0
+  ki: 1.5
+  kd: 5.0
+
+attitude_roll:
+  kp: 6.0
+  ki: 3.0
+  kd: 0.0
+
+attitude_pitch:
+  kp: 6.0
+  ki: 3.0
+  kd: 0.0
+
+rate_roll:
+  kp: 250.0
+  ki: 0.0
+  kd: 0.0
+
+rate_pitch:
+  kp: 250.0
+  ki: 0.0
+  kd: 0.0
