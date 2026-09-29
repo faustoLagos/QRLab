@@ -8,6 +8,22 @@ from mpl_toolkits.mplot3d import axes3d, Axes3D
 os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
 
 
+def save_time_series_csv(
+        output_directory: str,
+        filename: str,
+        time_values: np.ndarray,
+        signal_values: np.ndarray
+) -> None:
+    """Save one time-series signal as a two-column CSV file."""
+    output_path = os.path.join(output_directory, filename)
+    with open(output_path, 'wb') as out_file:
+        np.savetxt(
+            out_file,
+            np.transpose(np.vstack([time_values, signal_values])),
+            delimiter=","
+        )
+
+
 class Logger(object):
     """A class for logging and visualization.
 
@@ -223,6 +239,32 @@ class Logger(object):
                 np.savetxt(out_file, np.transpose(np.vstack([t, (self.states[i, 18, :] - 4070.3) / 0.2685])), delimiter=",")
             with open(csv_dir + "/pwm3-" + str(i) + ".csv", 'wb') as out_file:
                 np.savetxt(out_file, np.transpose(np.vstack([t, (self.states[i, 19, :] - 4070.3) / 0.2685])), delimiter=",")
+            control_reference_series = {
+                "xRef" + str(i) + ".csv": self.controls[i, 0, :],
+                "yRef" + str(i) + ".csv": self.controls[i, 1, :],
+                "zRef" + str(i) + ".csv": self.controls[i, 2, :],
+                "vxRef" + str(i) + ".csv": self.controls[i, 3, :],
+                "vyRef" + str(i) + ".csv": self.controls[i, 4, :],
+                "vzRef" + str(i) + ".csv": self.controls[i, 5, :],
+                "rollRefRad" + str(i) + ".csv": self.controls[i, 6, :],
+                "pitchRefRad" + str(i) + ".csv": self.controls[i, 7, :],
+                "yawRefRad" + str(i) + ".csv": self.controls[i, 8, :],
+                "wxRef" + str(i) + ".csv": self.controls[i, 9, :],
+                "wyRef" + str(i) + ".csv": self.controls[i, 10, :],
+                "wzRef" + str(i) + ".csv": self.controls[i, 11, :],
+                "rollRefDeg" + str(i) + ".csv": np.rad2deg(self.controls[i, 6, :]),
+                "pitchRefDeg" + str(i) + ".csv": np.rad2deg(self.controls[i, 7, :]),
+                "yawRefDeg" + str(i) + ".csv": np.rad2deg(self.controls[i, 8, :]),
+            }
+
+            for filename, signal_values in control_reference_series.items():
+                save_time_series_csv(
+                    output_directory=csv_dir,
+                    filename=filename,
+                    time_values=t,
+                    signal_values=signal_values
+                )
+
             with open(csv_dir + "/reward-" + str(i) + ".csv", 'wb') as out_file:
                 np.savetxt(out_file, np.transpose(np.vstack([t, self.rewards[i]])))
 

@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
-import csv
 import time
-from dataclasses import dataclass
 from math import radians
 from pathlib import Path
 
@@ -15,22 +13,11 @@ from environments.pid_simulation_env import (
     load_pid_gain_overrides,
 )
 from environments.utils.enums import ActionType
+from helpers.cast import str2bool
+from python_scripts.Logger import Logger
 
 
-@dataclass(frozen=True)
-class SimulationSample:
-    time_seconds: float
-    position: np.ndarray
-    rpy_radians: np.ndarray
-    linear_velocity: np.ndarray
-    angular_velocity_world: np.ndarray
-    motor_rpm: np.ndarray
-    desired_roll_degrees: float
-    desired_pitch_degrees: float
-    desired_velocity_body: np.ndarray
-    desired_body_rates_degrees_per_second: np.ndarray
-    legacy_control: np.ndarray
-    filtered_battery_voltage: float
+DEFAULT_OUTPUT_FOLDER = "results"
 
 
 def create_simulation_action(
@@ -55,115 +42,46 @@ def create_simulation_action(
     raise ValueError("PID simulation supports only position or velocity mode.")
 
 
-def read_simulation_sample(
-    environment: PIDSimulationEnv,
-    time_seconds: float,
-) -> SimulationSample:
-    """Read vehicle state and held controller outputs."""
-    state = environment._getDroneStateVector(0)
-    runtime_state = environment.CRAZYFLIE_RUNTIME_STATES[0]
-    outer_output = runtime_state.held_outer_output
-    legacy_control = runtime_state.held_legacy_control
-
-    return SimulationSample(
-        time_seconds=time_seconds,
-        position=state[0:3].copy(),
-        rpy_radians=state[7:10].copy(),
-        linear_velocity=state[10:13].copy(),
-        angular_velocity_world=state[13:16].copy(),
-        motor_rpm=state[16:20].copy(),
-        desired_roll_degrees=float(outer_output.roll_degrees),
-        desired_pitch_degrees=float(outer_output.pitch_degrees),
-        desired_velocity_body=np.array(
+def create_logger_control_target(
+    action_type: ActionType,
+    args: argparse.Namespace,
+) -> np.ndarray:
+    """Create the 12-element control target expected by QRLab's Logger."""
+    if action_type == ActionType.POSITION:
+        return np.array(
             [
-                outer_output.velocity_setpoint_body_x,
-                outer_output.velocity_setpoint_body_y,
-                outer_output.velocity_setpoint_z,
+                *args.target_position,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                radians(args.target_yaw_deg),
+                0.0,
+                0.0,
+                0.0,
             ],
             dtype=np.float64,
-        ),
-        desired_body_rates_degrees_per_second=np.array(
+        )
+
+    if action_type == ActionType.VELOCITY:
+        return np.array(
             [
-                legacy_control.desired_body_rates.roll_degrees_per_second,
-                legacy_control.desired_body_rates.pitch_degrees_per_second,
-                legacy_control.desired_body_rates.yaw_degrees_per_second,
+                0.0,
+                0.0,
+                0.0,
+                *args.target_velocity,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                radians(args.target_yaw_rate_deg_per_second),
             ],
             dtype=np.float64,
-        ),
-        legacy_control=np.array(
-            [
-                legacy_control.thrust,
-                legacy_control.roll,
-                legacy_control.pitch,
-                legacy_control.yaw,
-            ],
-            dtype=np.float64,
-        ),
-        filtered_battery_voltage=float(runtime_state.battery.supply_voltage),
-    )
+        )
 
-
-def write_samples_to_csv(
-    samples: list[SimulationSample],
-    output_path: Path,
-) -> None:
-    """Write PID simulation signals to CSV."""
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    header = [
-        "time_s",
-        "x_m",
-        "y_m",
-        "z_m",
-        "roll_rad",
-        "pitch_rad",
-        "yaw_rad",
-        "vx_m_s",
-        "vy_m_s",
-        "vz_m_s",
-        "wx_world_rad_s",
-        "wy_world_rad_s",
-        "wz_world_rad_s",
-        "rpm_1",
-        "rpm_2",
-        "rpm_3",
-        "rpm_4",
-        "desired_roll_deg",
-        "desired_pitch_deg",
-        "desired_vx_body_m_s",
-        "desired_vy_body_m_s",
-        "desired_vz_m_s",
-        "desired_roll_rate_deg_s",
-        "desired_pitch_rate_deg_s",
-        "desired_yaw_rate_deg_s",
-        "legacy_thrust",
-        "legacy_roll",
-        "legacy_pitch",
-        "legacy_yaw",
-        "filtered_battery_voltage_v",
-    ]
-
-    with output_path.open("w", newline="") as csv_file:
-        writer = csv.writer(csv_file)
-        writer.writerow(header)
-
-        for sample in samples:
-            writer.writerow(
-                [
-                    sample.time_seconds,
-                    *sample.position,
-                    *sample.rpy_radians,
-                    *sample.linear_velocity,
-                    *sample.angular_velocity_world,
-                    *sample.motor_rpm,
-                    sample.desired_roll_degrees,
-                    sample.desired_pitch_degrees,
-                    *sample.desired_velocity_body,
-                    *sample.desired_body_rates_degrees_per_second,
-                    *sample.legacy_control,
-                    sample.filtered_battery_voltage,
-                ]
-            )
+    raise ValueError("PID simulation supports only position or velocity mode.")
 
 
 def synchronize_simulation(
@@ -179,9 +97,7 @@ def synchronize_simulation(
         time.sleep(remaining)
 
 
-def run_pid_simulation(
-    args: argparse.Namespace,
-) -> list[SimulationSample]:
+def run_pid_simulation(args: argparse.Namespace) -> None:
     """Run one deterministic firmware-like PID simulation."""
     action_type = ActionType(args.mode)
     simulation_config = create_pid_simulation_config(
@@ -201,28 +117,38 @@ def run_pid_simulation(
         gui=args.gui,
         record=args.record_video,
     )
-    normalized_action = create_simulation_action(
-        environment=environment,
+    normalized_action = create_simulation_action(environment=environment, args=args)
+    control_target = create_logger_control_target(
+        action_type=action_type,
         args=args,
     )
-    samples: list[SimulationSample] = []
+    logger = (
+        Logger(
+            logging_freq_hz=int(environment.CTRL_FREQ),
+            output_folder=args.output_folder,
+            num_drones=1,
+            colab=False,
+        )
+        if args.save
+        else None
+    )
 
     try:
         environment.reset()
-
         total_steps = int(round(args.duration_seconds * environment.CTRL_FREQ))
         start_time = time.perf_counter()
 
         for step_index in range(total_steps):
-            environment.step(normalized_action)
+            _, reward, _, _, _ = environment.step(normalized_action)
 
-            sample_time = (step_index + 1) / environment.CTRL_FREQ
-            samples.append(
-                read_simulation_sample(
-                    environment=environment,
-                    time_seconds=sample_time,
+            if logger is not None:
+                logger.log(
+                    drone=0,
+                    timestamp=(step_index + 1) / environment.CTRL_FREQ,
+                    state=environment._getDroneStateVector(0),
+                    reward=reward,
+                    control=control_target,
                 )
-            )
 
             if args.gui and args.real_time:
                 synchronize_simulation(
@@ -247,13 +173,8 @@ def run_pid_simulation(
     finally:
         environment.close()
 
-    if args.csv is not None:
-        write_samples_to_csv(
-            samples=samples,
-            output_path=args.csv,
-        )
-
-    return samples
+    if logger is not None:
+        logger.save_as_csv(args.comment)
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -267,11 +188,7 @@ def parse_arguments() -> argparse.Namespace:
         choices=["position", "velocity"],
         default="position",
     )
-    parser.add_argument(
-        "--duration-seconds",
-        type=float,
-        default=10.0,
-    )
+    parser.add_argument("--duration-seconds", type=float, default=10.0)
     parser.add_argument(
         "--initial-position",
         nargs=3,
@@ -286,11 +203,7 @@ def parse_arguments() -> argparse.Namespace:
         default=(0.0, 0.0, 0.0),
         metavar=("ROLL", "PITCH", "YAW"),
     )
-    parser.add_argument(
-        "--battery-voltage",
-        type=float,
-        default=3.7,
-    )
+    parser.add_argument("--battery-voltage", type=float, default=3.7)
     parser.add_argument(
         "--pid-gains",
         type=Path,
@@ -300,7 +213,24 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--gui", action="store_true")
     parser.add_argument("--real-time", action="store_true")
     parser.add_argument("--record-video", action="store_true")
-    parser.add_argument("--csv", type=Path)
+    parser.add_argument(
+        "--save",
+        default=False,
+        type=str2bool,
+        help="Save simulation results using QRLab's Logger.",
+    )
+    parser.add_argument(
+        "--output-folder",
+        default=DEFAULT_OUTPUT_FOLDER,
+        type=str,
+        help="Directory used by QRLab's Logger.",
+    )
+    parser.add_argument(
+        "--comment",
+        default="pid",
+        type=str,
+        help="Comment included in the Logger output directory name.",
+    )
 
     position_group = parser.add_argument_group("position command")
     position_group.add_argument(
@@ -310,11 +240,7 @@ def parse_arguments() -> argparse.Namespace:
         default=(0.0, 0.0, 1.0),
         metavar=("X", "Y", "Z"),
     )
-    position_group.add_argument(
-        "--target-yaw-deg",
-        type=float,
-        default=0.0,
-    )
+    position_group.add_argument("--target-yaw-deg", type=float, default=0.0)
 
     velocity_group = parser.add_argument_group("velocity command")
     velocity_group.add_argument(
@@ -329,10 +255,7 @@ def parse_arguments() -> argparse.Namespace:
         type=float,
         default=0.0,
     )
-    velocity_group.add_argument(
-        "--body-frame-velocity",
-        action="store_true",
-    )
+    velocity_group.add_argument("--body-frame-velocity", action="store_true")
 
     return parser.parse_args()
 

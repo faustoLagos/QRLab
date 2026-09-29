@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
-import csv
 import time
-from dataclasses import dataclass
 from math import radians
 from pathlib import Path
 
@@ -19,106 +17,11 @@ from environments.mpc_simulation_env import (
     MPCSimulationEnv,
     create_mpc_simulation_config,
 )
+from helpers.cast import str2bool
+from python_scripts.Logger import Logger
 
 
-@dataclass(frozen=True)
-class MPCSimulationSample:
-    time_seconds: float
-    position: np.ndarray
-    rpy_radians: np.ndarray
-    linear_velocity: np.ndarray
-    angular_velocity_world: np.ndarray
-    motor_rpm: np.ndarray
-    commanded_wrench: np.ndarray
-    delta_wrench: np.ndarray
-    solve_time_seconds: float
-    solver_iterations: int
-    objective_value: float
-
-
-def read_simulation_sample(
-    environment: MPCSimulationEnv,
-    time_seconds: float,
-) -> MPCSimulationSample:
-    """Read vehicle state and the latest MPC solution."""
-    state = environment._getDroneStateVector(0)
-    solution = environment.LAST_MPC_SOLUTION
-    if solution is None:
-        raise RuntimeError("No MPC solution is available after the simulation step.")
-
-    return MPCSimulationSample(
-        time_seconds=time_seconds,
-        position=state[0:3].copy(),
-        rpy_radians=state[7:10].copy(),
-        linear_velocity=state[10:13].copy(),
-        angular_velocity_world=state[13:16].copy(),
-        motor_rpm=state[16:20].copy(),
-        commanded_wrench=environment.LAST_COMMANDED_WRENCH.copy(),
-        delta_wrench=solution.delta_wrench.copy(),
-        solve_time_seconds=solution.solve_time_seconds,
-        solver_iterations=solution.iterations,
-        objective_value=solution.objective_value,
-    )
-
-
-def simulation_sample_to_csv_row(sample: MPCSimulationSample) -> list[float | int]:
-    """Convert one simulation sample to the shared MPC CSV schema."""
-    return [
-        sample.time_seconds,
-        *sample.position,
-        *sample.rpy_radians,
-        *sample.linear_velocity,
-        *sample.angular_velocity_world,
-        *sample.motor_rpm,
-        *sample.commanded_wrench,
-        *sample.delta_wrench,
-        sample.solve_time_seconds,
-        sample.solver_iterations,
-        sample.objective_value,
-    ]
-
-
-def write_samples_to_csv(
-    samples: list[MPCSimulationSample],
-    output_path: Path,
-) -> None:
-    """Write MPC simulation signals and solver diagnostics to CSV."""
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    header = [
-        "time_s",
-        "x_m",
-        "y_m",
-        "z_m",
-        "roll_rad",
-        "pitch_rad",
-        "yaw_rad",
-        "vx_m_s",
-        "vy_m_s",
-        "vz_m_s",
-        "wx_world_rad_s",
-        "wy_world_rad_s",
-        "wz_world_rad_s",
-        "rpm_1",
-        "rpm_2",
-        "rpm_3",
-        "rpm_4",
-        "commanded_thrust_n",
-        "commanded_tau_x_nm",
-        "commanded_tau_y_nm",
-        "commanded_tau_z_nm",
-        "delta_thrust_n",
-        "delta_tau_x_nm",
-        "delta_tau_y_nm",
-        "delta_tau_z_nm",
-        "mpc_solve_time_s",
-        "mpc_iterations",
-        "mpc_objective",
-    ]
-
-    with output_path.open("w", newline="", encoding="utf-8") as csv_file:
-        writer = csv.writer(csv_file)
-        writer.writerow(header)
-        writer.writerows(map(simulation_sample_to_csv_row, samples))
+DEFAULT_OUTPUT_FOLDER = "results"
 
 
 def synchronize_simulation(
@@ -144,6 +47,25 @@ def create_simulation_command(
     )
 
 
+def create_logger_control_target(args: argparse.Namespace) -> np.ndarray:
+    """Create the 12-element position/yaw target expected by QRLab's Logger."""
+    return np.array(
+        [
+            *args.target_position,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            radians(args.target_yaw_deg),
+            0.0,
+            0.0,
+            0.0,
+        ],
+        dtype=np.float64,
+    )
+
+
 def print_effective_mpc_weights(environment: MPCSimulationEnv) -> None:
     """Print the complete effective Q/R configuration used by the solver."""
     workspace = environment.MPC_WORKSPACE
@@ -164,9 +86,7 @@ def print_effective_mpc_weights(environment: MPCSimulationEnv) -> None:
     )
 
 
-def run_mpc_simulation(
-    args: argparse.Namespace,
-) -> list[MPCSimulationSample]:
+def run_mpc_simulation(args: argparse.Namespace) -> None:
     """Run one deterministic constrained linear-MPC simulation."""
     weight_overrides = load_mpc_weight_overrides(args.mpc_weights)
     effective_weights = apply_mpc_weight_overrides(
@@ -179,13 +99,28 @@ def run_mpc_simulation(
     )
     environment = MPCSimulationEnv(
         initial_xyz=np.asarray(args.initial_position, dtype=np.float64),
-        initial_rpy=np.radians(np.asarray(args.initial_rpy_deg, dtype=np.float64)),
+        initial_rpy=np.radians(
+            np.asarray(args.initial_rpy_deg, dtype=np.float64)
+        ),
         config=simulation_config,
         gui=args.gui,
         record=args.record_video,
     )
     command = create_simulation_command(environment=environment, args=args)
-    samples: list[MPCSimulationSample] = []
+    control_target = create_logger_control_target(args=args)
+    logger = (
+        Logger(
+            logging_freq_hz=int(environment.CTRL_FREQ),
+            output_folder=args.output_folder,
+            num_drones=1,
+            colab=False,
+        )
+        if args.save
+        else None
+    )
+    solve_times: list[float] = []
+    solver_iterations: list[int] = []
+    objective_values: list[float] = []
 
     try:
         environment.reset()
@@ -194,13 +129,25 @@ def run_mpc_simulation(
         start_time = time.perf_counter()
 
         for step_index in range(total_steps):
-            environment.step(command)
-            samples.append(
-                read_simulation_sample(
-                    environment=environment,
-                    time_seconds=(step_index + 1) / environment.CTRL_FREQ,
+            _, reward, _, _, _ = environment.step(command)
+            solution = environment.LAST_MPC_SOLUTION
+            if solution is None:
+                raise RuntimeError(
+                    "No MPC solution is available after the simulation step."
                 )
-            )
+
+            solve_times.append(solution.solve_time_seconds)
+            solver_iterations.append(solution.iterations)
+            objective_values.append(solution.objective_value)
+
+            if logger is not None:
+                logger.log(
+                    drone=0,
+                    timestamp=(step_index + 1) / environment.CTRL_FREQ,
+                    state=environment._getDroneStateVector(0),
+                    reward=reward,
+                    control=control_target,
+                )
 
             if args.gui and args.real_time:
                 synchronize_simulation(
@@ -210,10 +157,19 @@ def run_mpc_simulation(
                 )
 
         final_state = environment._getDroneStateVector(0)
-        solve_times = np.asarray(
-            [sample.solve_time_seconds for sample in samples],
+        solve_time_array = np.asarray(
+            solve_times,
             dtype=np.float64,
         )
+        iteration_array = np.asarray(
+            solver_iterations,
+            dtype=np.int64,
+        )
+        objective_array = np.asarray(
+            objective_values,
+            dtype=np.float64,
+        )
+
         print(
             "Final position [m]: "
             f"{np.array2string(final_state[0:3], precision=4)}"
@@ -226,18 +182,29 @@ def run_mpc_simulation(
             "Final linear velocity [m/s]: "
             f"{np.array2string(final_state[10:13], precision=4)}"
         )
-        if solve_times.size > 0:
+
+        if solve_time_array.size > 0:
+            print("\nMPC solver statistics")
             print(
-                "MPC solve time [ms] mean/max: "
-                f"{1e3 * solve_times.mean():.3f} / {1e3 * solve_times.max():.3f}"
+                "Solve time [ms] mean/max: "
+                f"{1e3 * solve_time_array.mean():.3f} / "
+                f"{1e3 * solve_time_array.max():.3f}"
+            )
+            print(
+                "Iterations mean/max: "
+                f"{iteration_array.mean():.2f} / "
+                f"{iteration_array.max()}"
+            )
+            print(
+                "Objective mean/final: "
+                f"{objective_array.mean():.6f} / "
+                f"{objective_array[-1]:.6f}"
             )
     finally:
         environment.close()
 
-    if args.csv is not None:
-        write_samples_to_csv(samples=samples, output_path=args.csv)
-
-    return samples
+    if logger is not None:
+        logger.save_as_csv(args.comment)
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -278,7 +245,24 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--gui", action="store_true")
     parser.add_argument("--real-time", action="store_true")
     parser.add_argument("--record-video", action="store_true")
-    parser.add_argument("--csv", type=Path)
+    parser.add_argument(
+        "--save",
+        default=False,
+        type=str2bool,
+        help="Save simulation results using QRLab's Logger.",
+    )
+    parser.add_argument(
+        "--output-folder",
+        default=DEFAULT_OUTPUT_FOLDER,
+        type=str,
+        help="Directory used by QRLab's Logger.",
+    )
+    parser.add_argument(
+        "--comment",
+        default="mpc",
+        type=str,
+        help="Comment included in the Logger output directory name.",
+    )
     return parser.parse_args()
 
 
