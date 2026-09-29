@@ -117,21 +117,20 @@ def run_pid_simulation(args: argparse.Namespace) -> None:
         gui=args.gui,
         record=args.record_video,
     )
+
     normalized_action = create_simulation_action(environment=environment, args=args)
+
     control_target = create_logger_control_target(
         action_type=action_type,
         args=args,
     )
-    logger = (
-        Logger(
+
+    logger = Logger(
             logging_freq_hz=int(environment.CTRL_FREQ),
             output_folder=args.output_folder,
             num_drones=1,
             colab=False,
         )
-        if args.save
-        else None
-    )
 
     try:
         environment.reset()
@@ -173,8 +172,11 @@ def run_pid_simulation(args: argparse.Namespace) -> None:
     finally:
         environment.close()
 
-    if logger is not None:
+    if args.save:
         logger.save_as_csv(args.comment)
+
+    if args.plot:
+        logger.plot_position_and_orientation()
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -230,6 +232,12 @@ def parse_arguments() -> argparse.Namespace:
         default="pid",
         type=str,
         help="Comment included in the Logger output directory name.",
+    )
+    parser.add_argument(
+        "--plot",
+        default=False,
+        type=str2bool,
+        help="Wheater must be plot the standart position/orientation plots."
     )
 
     position_group = parser.add_argument_group("position command")
