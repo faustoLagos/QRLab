@@ -26,7 +26,7 @@ import pandas as pd
 from stable_baselines3 import PPO
 
 from environments.monte_carlo_env import MonteCarloEnv
-from python_scripts.Crazyflie_Experiment_2026.monte_carlo_core import (
+from python_scripts.ICRA_27.monte_carlo_core import (
     MonteCarloSummary,
     RecoveryCriteria,
     RolloutResult,
@@ -36,7 +36,7 @@ from python_scripts.Crazyflie_Experiment_2026.monte_carlo_core import (
     summarize_monte_carlo_results,
     summary_to_dictionary,
 )
-from python_scripts.Crazyflie_Experiment_2026.monte_carlo_plots import (
+from python_scripts.ICRA_27.monte_carlo_plots import (
     generate_binned_probability_plot,
     generate_outcome_fraction_plot,
     generate_recovered_metric_ecdf_plot,

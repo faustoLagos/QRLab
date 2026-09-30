@@ -1,0 +1,6 @@
+outcome,count,fraction
+recovered_cleanly,83,0.083
+recovered_with_training_envelope_violation,917,0.917
+not_recovered_by_horizon,0,0.0
+hard_failure,0,0.0
+evaluation_guard_reached,0,0.0

@@ -1,0 +1,111 @@
+{
+  "summary": {
+    "total_trials": 1000,
+    "recovered_trials": 553,
+    "recovered_cleanly_trials": 2,
+    "recovered_with_envelope_violation_trials": 551,
+    "not_recovered_by_horizon_trials": 0,
+    "hard_failure_trials": 447,
+    "incomplete_trials": 0,
+    "recovery_rate": 0.553,
+    "recovery_ci_level": 0.95,
+    "recovery_ci_lower": 0.5220403713020199,
+    "recovery_ci_upper": 0.5835539922985113,
+    "training_envelope_violation_trials": 998,
+    "training_envelope_violation_rate": 0.998,
+    "recovered_median_settling_time_s": 1.65,
+    "recovered_p95_settling_time_s": 2.36,
+    "recovered_mean_terminal_rmse": 0.03069236866327369,
+    "recovered_median_terminal_rmse": 0.03283425460687006,
+    "recovered_p95_terminal_rmse": 0.06010326565698333,
+    "recovered_mean_whole_episode_rmse": 0.26150834049557187,
+    "recovered_median_whole_episode_rmse": 0.24916021041228253,
+    "recovered_p95_whole_episode_rmse": 0.4675283790983118,
+    "recovered_p95_maximum_position_error": 2.304762522938868
+  },
+  "study_configuration": {
+    "controller": "mpc",
+    "controller_configuration": {
+      "horizon_steps": 20,
+      "mpc_weight_file": "helpers/mpc_weights_example.yaml",
+      "effective_weights": {
+        "state": {
+          "position_x": 50.0,
+          "position_y": 50.0,
+          "position_z": 85.0,
+          "velocity_x": 8.0,
+          "velocity_y": 8.0,
+          "velocity_z": 14.0,
+          "roll": 15.0,
+          "pitch": 15.0,
+          "yaw": 22.0,
+          "rate_roll": 0.75,
+          "rate_pitch": 0.75,
+          "rate_yaw": 0.75
+        },
+        "input": {
+          "thrust": 0.4,
+          "torque_roll": 0.1,
+          "torque_pitch": 0.1,
+          "torque_yaw": 0.08
+        }
+      },
+      "physics": "pyb_gnd",
+      "plant_parameters_randomized_only": true,
+      "internal_model_randomized": false,
+      "control_allocation_randomized": false
+    },
+    "study_type": "combined",
+    "total_trials": 1000,
+    "maximum_steps_guard": 2005,
+    "base_seed": 12345,
+    "confidence_level": 0.95,
+    "episode_length_seconds": 20.0,
+    "control_frequency_hz": 100.0,
+    "physics_frequency_hz": 1000.0,
+    "target_position_m": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "target_quaternion_xyzw": [
+      0.0,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "randomize_initial_conditions": true,
+    "domain_randomization_on_reset": true,
+    "recovery_criteria": {
+      "position_tolerance_m": 0.1,
+      "speed_tolerance_m_s": 0.2,
+      "attitude_tolerance_rad": 0.08726646259971647,
+      "attitude_tolerance_deg": 5.0,
+      "angular_speed_tolerance_rad_s": 0.3,
+      "dwell_time_s": 1.0,
+      "terminal_window_s": 1.0
+    },
+    "training_envelope": {
+      "logged_only": true,
+      "min_altitude_m": 0.1,
+      "max_position_error_m": 3.0,
+      "max_roll_pitch_deg": 14.999999999999998,
+      "max_speed_m_s": 2.0,
+      "max_angular_speed_rad_s": 2.0
+    },
+    "hard_failure_criteria": {
+      "terminate_on_ground_contact": true,
+      "hard_max_position_error_m": 20.0,
+      "non_finite_state_terminates": true,
+      "mpc_solver_unsolved_terminates": true,
+      "solver_failure_is_counted_as_hard_failure": true
+    },
+    "rng_design": {
+      "trial_seed": "base_seed + trial_index",
+      "ic_stream_matches_trained_policy_study": true,
+      "dr_sampler_matches_domain_randomization_mixin": true,
+      "paired_across_factor_class_studies": true,
+      "paired_across_controllers_when_base_seed_matches": true
+    }
+  }
+}
