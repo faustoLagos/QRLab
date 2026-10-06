@@ -62,7 +62,7 @@ class ICRA27Env(InertiaRandomizationMixin, MassRandomizationMixin, BaseRLAviary)
         return 0.6 * r_approach + 0.4 * r_accuracy
 
     def _linear_velocity_error_reward(self, v_current, v_target):
-        return self._exponential_reward(1.5, v_current, v_target)
+        return self._exponential_reward(1.0, v_current, v_target)
 
     @staticmethod
     def _orientation_error_reward(theta: float) -> float:
@@ -118,9 +118,9 @@ class ICRA27Env(InertiaRandomizationMixin, MassRandomizationMixin, BaseRLAviary)
         failure = (
                 (state[2] < 0.1) or
                 (position_error > 3.0) or
-                (np.abs(state[7]) > np.deg2rad(15)) or
-                (np.abs(state[8]) > np.deg2rad(15)) or
-                (velocity_norm > 2.0) or
+                (np.abs(state[7]) > np.deg2rad(35)) or
+                (np.abs(state[8]) > np.deg2rad(35)) or
+                (velocity_norm > 3.0) or
                 (omega_norm > 2.0)
         )
 
