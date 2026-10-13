@@ -118,10 +118,10 @@ class ICRA27Env(InertiaRandomizationMixin, MassRandomizationMixin, BaseRLAviary)
         failure = (
                 (state[2] < 0.1) or
                 (position_error > 3.0) or
-                (np.abs(state[7]) > np.deg2rad(35)) or
-                (np.abs(state[8]) > np.deg2rad(35)) or
-                (velocity_norm > 3.0) or
-                (omega_norm > 2.0)
+                (np.abs(state[7]) > np.deg2rad(90)) or
+                (np.abs(state[8]) > np.deg2rad(90)) or
+                (velocity_norm > 10.0) or
+                (omega_norm > 3.0)
         )
 
         if failure:
@@ -238,10 +238,10 @@ class ICRA27Env(InertiaRandomizationMixin, MassRandomizationMixin, BaseRLAviary)
             high=np.array([2.0, 2.0, 2.0]),
         )
         initial_rpy = self.np_random.uniform(
-            low=np.array([-0.2, -0.2, -3.14]),
-            high=np.array([0.2, 0.2, 3.14]),
+            low=np.array([-0.7, -0.7, -3.14]),
+            high=np.array([0.7, 0.7, 3.14]),
         )
-        initial_linear_velocity = self.np_random.uniform(-1.0, 1.0, size=3)
+        initial_linear_velocity = self.np_random.uniform(-2.0, 2.0, size=3)
         initial_angular_velocity = self.np_random.uniform(-1.0, 1.0, size=3)
 
         self.INIT_XYZS = initial_position.reshape(1, 3)
