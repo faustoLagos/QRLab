@@ -1,12 +1,13 @@
 import numpy as np
 from gymnasium import spaces
 from environments.BaseRLAviary import BaseRLAviary, FIRMWARE_NOMINAL_BATTERY_VOLTAGE
-from environments.utils.domain_randomization import InertiaRandomizationMixin, MassRandomizationMixin
+from environments.utils.domain_randomization import MassRandomizationMixin
+from environments.utils.com_randomization import COMRandomizationMixin
 from environments.utils.enums import DroneModel, Physics, ActionType
 import pybullet as p
 
 
-class ICRA27Env(InertiaRandomizationMixin, MassRandomizationMixin, BaseRLAviary):
+class ICRA27Env(COMRandomizationMixin, MassRandomizationMixin, BaseRLAviary):
     def __init__(self,
                  drone_model: DroneModel = DroneModel.CF2X,
                  initial_xyzs=np.array([[0, 0, 0.1]]),
@@ -21,7 +22,7 @@ class ICRA27Env(InertiaRandomizationMixin, MassRandomizationMixin, BaseRLAviary)
                  action_space: ActionType = ActionType.RPM,
                  firmware_battery_voltage: float = FIRMWARE_NOMINAL_BATTERY_VOLTAGE,
                  mass_scale_range: tuple[float, float] = (0.90, 1.10),
-                 inertia_scale_range: tuple[float, float] = (0.90, 1.10),
+                 com_offset_range_m: tuple = ((-0.003, 0.003), (-0.003, 0.003), (-0.002, 0.002)),
                  *arg, **kwargs
                  ):
         self.INIT_XYZS = initial_xyzs
@@ -41,7 +42,7 @@ class ICRA27Env(InertiaRandomizationMixin, MassRandomizationMixin, BaseRLAviary)
                          firmware_actuator=True,
                          firmware_battery_voltage=firmware_battery_voltage,
                          mass_scale_range=mass_scale_range,
-                         inertia_scale_range=inertia_scale_range,
+                         com_offset_range_m=com_offset_range_m,
                          *arg, **kwargs
                          )
 
