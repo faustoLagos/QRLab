@@ -4,7 +4,7 @@ import sys
 from stable_baselines3 import PPO
 from rich.console import Console
 from rich.syntax import Syntax
-from python_scripts.Crazyflie_Experiment_2026.crazyflie_firmware_nn_compute.c_code_blocks import (
+from python_scripts.crazyflie_firmware_nn_compute.c_code_blocks import (
     headers_nn_compute,
     output_arrays,
     forward_pass_function
